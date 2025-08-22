@@ -4,3 +4,4 @@ flask
 openai
 supabase
 python-dotenv
+gunicorn

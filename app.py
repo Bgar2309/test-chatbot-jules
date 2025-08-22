@@ -204,4 +204,6 @@ def chat():
 # --- Main Execution ---
 if __name__ == '__main__':
     print("Application is ready to start.")
-    app.run(host='0.0.0.0', port=5000)
+    # Use the PORT environment variable if available, otherwise default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
