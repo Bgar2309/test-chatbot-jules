@@ -8,16 +8,55 @@
         body {
             font-family: Arial, sans-serif;
             background-color: #f4f4f9;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+        #changelog-sidebar {
+            width: 25%;
+            max-width: 300px;
+            background-color: #e9e9eb;
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid #ddd;
+        }
+        #changelog-sidebar h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        #changelog-sidebar ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #changelog-sidebar li {
+            margin-bottom: 20px;
+        }
+        #changelog-sidebar h3 {
+            margin-bottom: 5px;
+            color: #007bff;
+        }
+        #changelog-sidebar p {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.4;
+            color: #555;
+        }
+        #main-content {
+            flex-grow: 1;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            margin: 0;
+            padding: 20px;
         }
         #chat-container {
-            width: 80%;
+            width: 100%;
             max-width: 600px;
-            height: 80vh;
+            height: 90vh;
             background-color: #fff;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -44,7 +83,7 @@
             margin-left: auto;
         }
         .bot-message {
-            background-color: #e9e9eb;
+            background-color: #f1f1f1;
             color: #333;
             align-self: flex-start;
         }
@@ -85,20 +124,49 @@
     </style>
 </head>
 <body>
-    <div id="chat-container">
-        <div id="chat-window">
-            <div class="message bot-message">
-                Hello! I'm your inventory assistant. Ask me questions about the stencil inventory.
+    <div id="app-container">
+        <div id="changelog-sidebar">
+            <h2>Dernières versions</h2>
+            <ul>
+                <li>
+                    <h3>v1.4 - Anti-Hallucination</h3>
+                    <p>Le prompt du modèle de réponse a été renforcé pour empêcher l'invention d'informations lorsque les données sont manquantes.</p>
+                </li>
+                <li>
+                    <h3>v1.3 - Amélioration des dates</h3>
+                    <p>Le prompt de génération SQL a été rendu plus strict pour forcer l'utilisation de `date_of_inventory` et ignorer les dates nulles.</p>
+                </li>
+                <li>
+                    <h3>v1.2 - Correction de bugs Mistral</h3>
+                    <p>Correction des erreurs de crash avec le modèle Mistral en utilisant une version stable de la librairie et en adaptant les appels API.</p>
+                </li>
+                <li>
+                    <h3>v1.1 - Ajout de Mistral AI</h3>
+                    <p>Ajout d'un sélecteur de modèle pour permettre de choisir entre OpenAI (GPT-4o-mini) et Mistral (Mistral Small).</p>
+                </li>
+                 <li>
+                    <h3>v1.0 - Version initiale</h3>
+                    <p>Première version du chatbot d'inventaire utilisant le modèle d'OpenAI pour générer des requêtes SQL.</p>
+                </li>
+            </ul>
+        </div>
+        <div id="main-content">
+            <div id="chat-container">
+                <div id="chat-window">
+                    <div class="message bot-message">
+                        Hello! I'm your inventory assistant. Ask me questions about the stencil inventory.
+                    </div>
+                </div>
+                <form id="chat-form">
+                    <select id="model-selector">
+                        <option value="gpt-4o-mini">OpenAI (GPT-4o-mini)</option>
+                        <option value="mistral-small-latest">Mistral (Small)</option>
+                    </select>
+                    <input type="text" id="message-input" placeholder="Ask a question..." autocomplete="off" required>
+                    <button type="submit" id="send-button">Send</button>
+                </form>
             </div>
         </div>
-        <form id="chat-form">
-            <select id="model-selector">
-                <option value="gpt-4o-mini">OpenAI (GPT-4o-mini)</option>
-                <option value="mistral-small-latest">Mistral (Small)</option>
-            </select>
-            <input type="text" id="message-input" placeholder="Ask a question..." autocomplete="off" required>
-            <button type="submit" id="send-button">Send</button>
-        </form>
     </div>
 
     <script>
