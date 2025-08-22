@@ -32,7 +32,8 @@ def setup_supabase():
             "CONE SIZE": "cone_size",
             "# OF LINES": "number_of_lines",
             "MISC. INFO": "misc_info",
-            "DATE": "date_of_inventory"
+            "DATE": "date_of_inventory",
+            "SILKSCREEN": "silkscreen"
         }, inplace=True)
 
         # 3. Convert DataFrame to a list of dictionaries for Supabase
