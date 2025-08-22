@@ -94,6 +94,10 @@
         const messageInput = document.getElementById('message-input');
         const chatWindow = document.getElementById('chat-window');
         const sendButton = document.getElementById('send-button');
+        let chatHistory = []; // Initialize chat history
+
+        // Add the initial bot message to the history
+        chatHistory.push({ role: 'assistant', content: "Hello! I'm your inventory assistant. Ask me questions about the stencil inventory." });
 
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -101,6 +105,7 @@
             if (!message) return;
 
             addMessageToWindow('user', message);
+            chatHistory.push({ role: 'user', content: message }); // Add user message to history
             messageInput.value = '';
             showThinkingIndicator(true);
 
@@ -110,15 +115,19 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message }),
+                    // Send message and the history
+                    body: JSON.stringify({ message: message, history: chatHistory.slice(0, -1) }), // Send history *before* the current message
                 });
 
                 const data = await response.json();
                 addMessageToWindow('bot', data.response);
+                chatHistory.push({ role: 'assistant', content: data.response }); // Add bot response to history
 
             } catch (error) {
                 console.error('Error:', error);
-                addMessageToWindow('bot', 'Sorry, I am having trouble connecting to the server.');
+                const errorMessage = 'Sorry, I am having trouble connecting to the server.';
+                addMessageToWindow('bot', errorMessage);
+                chatHistory.push({ role: 'assistant', content: errorMessage });
             } finally {
                 showThinkingIndicator(false);
             }
@@ -127,7 +136,8 @@
         function addMessageToWindow(sender, message) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'bot-message');
-            messageDiv.textContent = message;
+            // Use innerHTML to render newlines correctly
+            messageDiv.innerHTML = message.replace(/\n/g, '<br>');
             chatWindow.appendChild(messageDiv);
             chatWindow.scrollTop = chatWindow.scrollHeight; // Scroll to the bottom
         }
