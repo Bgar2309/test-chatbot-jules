@@ -3,7 +3,7 @@ import sys
 from flask import Flask, request, jsonify, render_template
 from supabase import create_client, Client
 from openai import OpenAI
-from mistralai import Mistral
+from mistralai.client import MistralClient
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -30,7 +30,7 @@ if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key]):
 try:
     supabase: Client = create_client(supabase_url, supabase_key)
     openai_client = OpenAI(api_key=openai_api_key)
-    mistral_client = Mistral(api_key=mistral_api_key)
+    mistral_client = MistralClient(api_key=mistral_api_key)
 except Exception as e:
     print(f"Error initializing clients: {e}")
     sys.exit(1)
@@ -55,12 +55,6 @@ CREATE TABLE inventory (
 """
 
 # --- Core Logic Functions ---
-def get_llm_client(model_name):
-    """Returns the appropriate LLM client based on the model name."""
-    if "mistral" in model_name.lower():
-        return mistral_client
-    return openai_client
-
 def get_sql_from_llm(user_question, history, model):
     """
     Uses the selected LLM to convert a user's question into a SQL query.
@@ -91,12 +85,19 @@ def get_sql_from_llm(user_question, history, model):
     messages.append({"role": "user", "content": user_question})
 
     try:
-        client = get_llm_client(model)
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0,
-        )
+        if "mistral" in model.lower():
+            response = mistral_client.chat(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+        else:
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+
         sql_query = response.choices[0].message.content.strip()
         if not sql_query.upper().startswith("SELECT"):
             return None
@@ -157,16 +158,24 @@ def get_response_from_llm(user_question, db_results, history, model):
     Your response:
     """
 
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
     try:
-        client = get_llm_client(model)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
-        )
+        if "mistral" in model.lower():
+            response = mistral_client.chat(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+            )
+        else:
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+            )
         return response.choices[0].message.content
     except Exception as e:
         print(f"Error generating final response with model {model}: {e}")
