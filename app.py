@@ -63,6 +63,7 @@ def get_sql_from_llm(user_question, history):
     - The `orientation` column is likely 'HRZ' (horizontal) or 'VERT' (vertical).
     - The `date_of_inventory` column stores dates as text.
     - **Crucially, to handle whitespace issues in the data, always wrap the column name in the `TRIM()` function when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
+    - **Important: When a user asks about a type of item, such as a 'silkscreen', this information is located in the `MISC. INFO` column. You must search for the term in the `MISC. INFO` column (e.g., `WHERE "MISC. INFO" ILIKE '%silkscreen%'`).**
     - Perform case-insensitive searches using the `ILIKE` operator.
     - If the user asks for a specific item, use the `=` or `ILIKE` operator. If they are asking a more general question, use `ILIKE` with wildcards (`%`).
     - If the user asks a general question, try to return all relevant rows.
