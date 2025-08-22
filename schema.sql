@@ -14,5 +14,6 @@ CREATE TABLE inventory (
     number_of_lines TEXT,
     misc_info TEXT,
     date_of_inventory TEXT,
+    silkscreen TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
