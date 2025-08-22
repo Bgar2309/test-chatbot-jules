@@ -3,6 +3,7 @@ import sys
 from flask import Flask, request, jsonify, render_template
 from supabase import create_client, Client
 from openai import OpenAI
+from mistralai.client import MistralClient
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -12,21 +13,24 @@ load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 openai_api_key = os.environ.get("OPENAI_API_KEY")
+mistral_api_key = os.environ.get("MISTRAL_API_KEY")
 
-if not all([supabase_url, supabase_key, openai_api_key]):
+if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key]):
     print("---" * 10)
     print("ERROR: Missing required environment variables.")
     print("Please ensure your .env file is correctly set up with:")
     print("- SUPABASE_URL")
     print("- SUPABASE_KEY")
     print("- OPENAI_API_KEY")
+    print("- MISTRAL_API_KEY")
     print("---" * 10)
     sys.exit(1)
 
 # --- Client Initialization ---
 try:
     supabase: Client = create_client(supabase_url, supabase_key)
-    client = OpenAI(api_key=openai_api_key)
+    openai_client = OpenAI(api_key=openai_api_key)
+    mistral_client = MistralClient(api_key=mistral_api_key)
 except Exception as e:
     print(f"Error initializing clients: {e}")
     sys.exit(1)
@@ -51,83 +55,82 @@ CREATE TABLE inventory (
 """
 
 # --- Core Logic Functions ---
-def get_sql_from_llm(user_question, history):
+def get_sql_from_llm(user_question, history, model):
     """
-    Uses OpenAI to convert a user's question into a SQL query, using conversation history for context.
+    Uses the selected LLM to convert a user's question into a SQL query.
     """
     system_prompt = f"""
-    You are an expert SQL assistant. Your task is to generate a SQL query based on a user's question and the conversation history.
-    You must only respond with the SQL query, and nothing else.
-    The query will be executed against a PostgreSQL database with the following table schema:
-    {TABLE_SCHEMA}
-    - The table is named 'inventory'.
-    - The `stencil` column contains stencil information.
-    - The `silkscreen` column contains silkscreen information.
-    - The `orientation` column is either 'HRZ' (horizontal) or 'VERT' (vertical).
-    - The `date_of_inventory` column stores dates as text and can be used for sorting. `created_at` is a timestamp that can also be used for finding the most recent entries.
-    - **Crucially, to handle whitespace issues in the data, always wrap column names in `TRIM()` when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
-    - **To get all information for an item, use `SELECT * FROM inventory...`.**
-    - **When a user asks for the "latest" or "most recent" entry for something (e.g., "latest silkscreen"), find the relevant item and order by `date_of_inventory` or `created_at` in descending order and limit the result to 1. For example: `SELECT * FROM inventory WHERE silkscreen IS NOT NULL ORDER BY date_of_inventory DESC LIMIT 1;`**
-    - Perform case-insensitive searches using the `ILIKE` operator.
-    - If the user asks for a specific item, use `ILIKE` with wildcards (`%`).
-    - Unless the user asks for a count or a specific number, return all columns (`SELECT *`).
-    - ALWAYS limit the query to 20 rows using 'LIMIT 20' unless a specific limit is requested.
-    - Do not include any characters like ```sql or ``` in your response.
-    - Use the conversation history to understand context for follow-up questions.
+    You are a hyper-specialized SQL generation bot. Your single purpose is to convert user questions into a valid PostgreSQL query for the `inventory` table. You must adhere to the following rules with no exceptions.
+
+    **Primary Directive: Date Queries**
+    - The user's concept of "date", "latest", "newest", or "most recent" ALWAYS refers to the `date_of_inventory` column.
+    - The `created_at` column is a technical field and you are FORBIDDEN from using it in any `ORDER BY` clause for date-related queries.
+    - When the user asks for the "latest" or "most recent" item, your query MUST:
+        1. Filter for entries where the inventory date exists: `WHERE date_of_inventory IS NOT NULL AND date_of_inventory != ''`
+        2. Order the results by inventory date: `ORDER BY date_of_inventory DESC`
+        3. Return only the top result: `LIMIT 1`
+    - Example for "latest silkscreen": `SELECT * FROM inventory WHERE silkscreen IS NOT NULL AND date_of_inventory IS NOT NULL AND date_of_inventory != '' ORDER BY date_of_inventory DESC LIMIT 1;`
+
+    **General Query Rules:**
+    - Table name: `inventory`
+    - Schema:
+      {TABLE_SCHEMA}
+    - For string comparisons (e.g., on `stencil` or `silkscreen`), always use `TRIM()` and `ILIKE` for case-insensitive and whitespace-tolerant matching (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).
+    - Unless the user asks for a specific count, always select all columns: `SELECT *`.
+    - Limit all queries to a maximum of 20 rows (`LIMIT 20`) unless a different limit is requested.
+
+    **Output Format:**
+    - You must only respond with the raw SQL query. No explanations, no markdown, no "```sql".
     """
 
     messages = [{"role": "system", "content": system_prompt}]
-    # Add history messages
-    for message in history:
-        messages.append({"role": message["role"], "content": message["content"]})
-    # Add the current user question
+    messages.extend(history)
     messages.append({"role": "user", "content": user_question})
 
-
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            temperature=0,
-        )
+        if "mistral" in model.lower():
+            response = mistral_client.chat(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+        else:
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+            )
+
         sql_query = response.choices[0].message.content.strip()
         if not sql_query.upper().startswith("SELECT"):
             return None
         return sql_query
     except Exception as e:
-        print(f"Error generating SQL query: {e}")
+        print(f"Error generating SQL query with model {model}: {e}")
         return None
 
-def get_response_from_llm(user_question, db_results, history):
+def get_response_from_llm(user_question, db_results, history, model):
     """
-    Uses OpenAI to generate a natural language response based on the user's question, database results, and conversation history.
+    Uses the selected LLM to generate a natural language response.
     """
     system_prompt = """
-    You are a helpful chatbot assistant. Your user has asked a question, and you have retrieved some information from a database.
-    Your task is to provide a clear, friendly, and well-formatted answer based on the provided database results.
+    You are a helpful but strictly factual chatbot assistant. Your task is to present information from a database search result. You must be precise and never invent information.
 
-    - **Formatting Instructions:**
-      - When presenting the details of an inventory item, display each piece of information on a new line for readability.
-      - Use clear labels for each field (e.g., "Stencil:", "Orientation:").
-      - If a field is empty or null (like `None` or an empty string), either omit it from the response or explicitly state that it's not available (e.g., "Cone Size: Not specified").
-      - **Crucially, when displaying the `orientation` field, translate the database value to a more readable format: display 'Horizontal' for 'HRZ' and 'Vertical' for 'VERT'.**
+    **Primary Directive: Factual Reporting**
+    - You MUST only use information explicitly provided in the "Database search results".
+    - If a field in the database result is empty, null, or not present, you MUST state "Not specified" or "Not available".
+    - **DO NOT HALLUCINATE:** Under no circumstances should you invent, guess, or infer a value for a field that is empty. For example, if `date_of_inventory` is empty, do not fill it in with a value from another field like `invoice_number`. This is strictly forbidden.
 
-    - **Example of a good response:**
-      Here is the information for the item you requested:
-      - Stencil: ST-1234
-      - Orientation: Horizontal
-      - Invoice Number: 98765
-      - Cone Size: Not specified
-      - Number of Lines: 2
-      - Misc Info: General purpose
-      - Date of Inventory: 2023-10-26
-      - Silkscreen: SLK-A
+    **Formatting Instructions:**
+    - Present each piece of information on a new line with a clear label (e.g., "Stencil:").
+    - **NEVER display the `id` or `created_at` columns.** These are internal database fields.
+    - Translate `orientation`: 'HRZ' to 'Horizontal', 'VERT' to 'Vertical'.
+    - The primary date to show the user is from the `date_of_inventory` column. Label it "Date of Inventory:".
 
-    - **Response Logic:**
-      - If the database results are empty, inform the user that you couldn't find any information matching their request.
-      - If there are multiple results, you can summarize them or present the most relevant one.
-      - If the database query resulted in an error, apologize and say there was a problem retrieving the data.
-      - Use the conversation history to understand the context of the user's question.
+    **Response Logic:**
+    - If the database results are empty, inform the user that you couldn't find any information matching their request.
+    - If the database query resulted in an error, apologize and say there was a problem retrieving the data.
+    - Use the conversation history to understand the context of the user's question.
     """
 
     if db_results and 'error' in db_results:
@@ -137,7 +140,6 @@ def get_response_from_llm(user_question, db_results, history):
     else:
         results_str = "\n".join([str(row) for row in db_results])
 
-    # Constructing the prompt with history
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
     prompt = f"""
     Here is the conversation history:
@@ -151,18 +153,27 @@ def get_response_from_llm(user_question, db_results, history):
     Your response:
     """
 
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
-        )
+        if "mistral" in model.lower():
+            response = mistral_client.chat(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+            )
+        else:
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+            )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"Error generating final response: {e}")
+        print(f"Error generating final response with model {model}: {e}")
         return "Sorry, I encountered an error while formulating a response."
 
 # --- Flask Routes ---
@@ -177,18 +188,18 @@ def chat():
     """
     data = request.get_json()
     user_question = data.get("message")
-    history = data.get("history", []) # Expect a 'history' key, default to empty list
+    history = data.get("history", [])
+    model = data.get("model", "gpt-4o-mini") # Default to OpenAI model
 
     if not user_question:
         return jsonify({"error": "No message provided"}), 400
 
-    sql_query = get_sql_from_llm(user_question, history)
+    sql_query = get_sql_from_llm(user_question, history, model)
     if not sql_query:
         return jsonify({"response": "Sorry, I couldn't understand your request. Could you please rephrase it?"})
 
-    # Clean the generated SQL query
     cleaned_sql_query = sql_query.strip().rstrip(';')
-    print(f"Generated SQL Query: {cleaned_sql_query}")
+    print(f"Generated SQL Query with {model}: {cleaned_sql_query}")
 
     try:
         rpc_params = {'query': cleaned_sql_query}
@@ -199,12 +210,11 @@ def chat():
 
     print(f"Database results: {db_results}")
 
-    final_response = get_response_from_llm(user_question, db_results, history)
+    final_response = get_response_from_llm(user_question, db_results, history, model)
     return jsonify({"response": final_response})
 
 # --- Main Execution ---
 if __name__ == '__main__':
     print("Application is ready to start.")
-    # Use the PORT environment variable if available, otherwise default to 5000
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
