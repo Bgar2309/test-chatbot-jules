@@ -109,14 +109,17 @@
             messageInput.value = '';
             showThinkingIndicator(true);
 
+            // Limit history to the last 10 exchanges (20 messages)
+            const limitedHistory = chatHistory.slice(0, -1).slice(-20);
+
             try {
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    // Send message and the history
-                    body: JSON.stringify({ message: message, history: chatHistory.slice(0, -1) }), // Send history *before* the current message
+                    // Send message and the limited history
+                    body: JSON.stringify({ message: message, history: limitedHistory }),
                 });
 
                 const data = await response.json();
@@ -130,6 +133,10 @@
                 chatHistory.push({ role: 'assistant', content: errorMessage });
             } finally {
                 showThinkingIndicator(false);
+                // Trim the local history to prevent it from growing indefinitely
+                if (chatHistory.length > 20) {
+                    chatHistory = chatHistory.slice(-20);
+                }
             }
         });
 

@@ -82,7 +82,7 @@ def get_sql_from_llm(user_question, history):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5-nano",
             messages=messages,
             temperature=0,
         )
@@ -130,7 +130,7 @@ def get_response_from_llm(user_question, db_results, history):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-5-nano",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
