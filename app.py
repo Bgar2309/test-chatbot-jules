@@ -3,6 +3,7 @@ import sys
 from flask import Flask, request, jsonify, render_template
 from supabase import create_client, Client
 from openai import OpenAI
+from mistralai import Mistral
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -12,21 +13,24 @@ load_dotenv()
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 openai_api_key = os.environ.get("OPENAI_API_KEY")
+mistral_api_key = os.environ.get("MISTRAL_API_KEY")
 
-if not all([supabase_url, supabase_key, openai_api_key]):
+if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key]):
     print("---" * 10)
     print("ERROR: Missing required environment variables.")
     print("Please ensure your .env file is correctly set up with:")
     print("- SUPABASE_URL")
     print("- SUPABASE_KEY")
     print("- OPENAI_API_KEY")
+    print("- MISTRAL_API_KEY")
     print("---" * 10)
     sys.exit(1)
 
 # --- Client Initialization ---
 try:
     supabase: Client = create_client(supabase_url, supabase_key)
-    client = OpenAI(api_key=openai_api_key)
+    openai_client = OpenAI(api_key=openai_api_key)
+    mistral_client = Mistral(api_key=mistral_api_key)
 except Exception as e:
     print(f"Error initializing clients: {e}")
     sys.exit(1)
@@ -51,9 +55,15 @@ CREATE TABLE inventory (
 """
 
 # --- Core Logic Functions ---
-def get_sql_from_llm(user_question, history):
+def get_llm_client(model_name):
+    """Returns the appropriate LLM client based on the model name."""
+    if "mistral" in model_name.lower():
+        return mistral_client
+    return openai_client
+
+def get_sql_from_llm(user_question, history, model):
     """
-    Uses OpenAI to convert a user's question into a SQL query, using conversation history for context.
+    Uses the selected LLM to convert a user's question into a SQL query.
     """
     system_prompt = f"""
     You are an expert SQL assistant. Your task is to generate a SQL query based on a user's question and the conversation history.
@@ -77,16 +87,13 @@ def get_sql_from_llm(user_question, history):
     """
 
     messages = [{"role": "system", "content": system_prompt}]
-    # Add history messages
-    for message in history:
-        messages.append({"role": message["role"], "content": message["content"]})
-    # Add the current user question
+    messages.extend(history)
     messages.append({"role": "user", "content": user_question})
 
-
     try:
+        client = get_llm_client(model)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=messages,
             temperature=0,
         )
@@ -95,12 +102,12 @@ def get_sql_from_llm(user_question, history):
             return None
         return sql_query
     except Exception as e:
-        print(f"Error generating SQL query: {e}")
+        print(f"Error generating SQL query with model {model}: {e}")
         return None
 
-def get_response_from_llm(user_question, db_results, history):
+def get_response_from_llm(user_question, db_results, history, model):
     """
-    Uses OpenAI to generate a natural language response based on the user's question, database results, and conversation history.
+    Uses the selected LLM to generate a natural language response.
     """
     system_prompt = """
     You are a helpful chatbot assistant. Your user has asked a question, and you have retrieved some information from a database.
@@ -137,7 +144,6 @@ def get_response_from_llm(user_question, db_results, history):
     else:
         results_str = "\n".join([str(row) for row in db_results])
 
-    # Constructing the prompt with history
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
     prompt = f"""
     Here is the conversation history:
@@ -152,8 +158,9 @@ def get_response_from_llm(user_question, db_results, history):
     """
 
     try:
+        client = get_llm_client(model)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
@@ -162,7 +169,7 @@ def get_response_from_llm(user_question, db_results, history):
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"Error generating final response: {e}")
+        print(f"Error generating final response with model {model}: {e}")
         return "Sorry, I encountered an error while formulating a response."
 
 # --- Flask Routes ---
@@ -177,18 +184,18 @@ def chat():
     """
     data = request.get_json()
     user_question = data.get("message")
-    history = data.get("history", []) # Expect a 'history' key, default to empty list
+    history = data.get("history", [])
+    model = data.get("model", "gpt-4o-mini") # Default to OpenAI model
 
     if not user_question:
         return jsonify({"error": "No message provided"}), 400
 
-    sql_query = get_sql_from_llm(user_question, history)
+    sql_query = get_sql_from_llm(user_question, history, model)
     if not sql_query:
         return jsonify({"response": "Sorry, I couldn't understand your request. Could you please rephrase it?"})
 
-    # Clean the generated SQL query
     cleaned_sql_query = sql_query.strip().rstrip(';')
-    print(f"Generated SQL Query: {cleaned_sql_query}")
+    print(f"Generated SQL Query with {model}: {cleaned_sql_query}")
 
     try:
         rpc_params = {'query': cleaned_sql_query}
@@ -199,12 +206,11 @@ def chat():
 
     print(f"Database results: {db_results}")
 
-    final_response = get_response_from_llm(user_question, db_results, history)
+    final_response = get_response_from_llm(user_question, db_results, history, model)
     return jsonify({"response": final_response})
 
 # --- Main Execution ---
 if __name__ == '__main__':
     print("Application is ready to start.")
-    # Use the PORT environment variable if available, otherwise default to 5000
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
