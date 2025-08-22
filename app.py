@@ -145,10 +145,12 @@ def chat():
     if not sql_query:
         return jsonify({"response": "Sorry, I couldn't understand your request. Could you please rephrase it?"})
 
-    print(f"Generated SQL Query: {sql_query}")
+    # Clean the generated SQL query
+    cleaned_sql_query = sql_query.strip().rstrip(';')
+    print(f"Generated SQL Query: {cleaned_sql_query}")
 
     try:
-        rpc_params = {'query': sql_query}
+        rpc_params = {'query': cleaned_sql_query}
         db_results = supabase.rpc('execute_sql', rpc_params).execute().data
     except Exception as e:
         print(f"Error executing Supabase RPC: {e}")
