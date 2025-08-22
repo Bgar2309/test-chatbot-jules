@@ -110,11 +110,12 @@ def get_response_from_llm(user_question, db_results, history):
       - When presenting the details of an inventory item, display each piece of information on a new line for readability.
       - Use clear labels for each field (e.g., "Stencil:", "Orientation:").
       - If a field is empty or null (like `None` or an empty string), either omit it from the response or explicitly state that it's not available (e.g., "Cone Size: Not specified").
+      - **Crucially, when displaying the `orientation` field, translate the database value to a more readable format: display 'Horizontal' for 'HRZ' and 'Vertical' for 'VERT'.**
 
     - **Example of a good response:**
       Here is the information for the item you requested:
       - Stencil: ST-1234
-      - Orientation: HRZ
+      - Orientation: Horizontal
       - Invoice Number: 98765
       - Cone Size: Not specified
       - Number of Lines: 2
@@ -204,4 +205,6 @@ def chat():
 # --- Main Execution ---
 if __name__ == '__main__':
     print("Application is ready to start.")
-    app.run(host='0.0.0.0', port=5000)
+    # Use the PORT environment variable if available, otherwise default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
