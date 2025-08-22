@@ -44,7 +44,9 @@ CREATE TABLE inventory (
     cone_size TEXT,
     number_of_lines TEXT,
     misc_info TEXT,
-    date_of_inventory TEXT
+    date_of_inventory TEXT,
+    silkscreen TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 """
 
@@ -59,17 +61,19 @@ def get_sql_from_llm(user_question, history):
     The query will be executed against a PostgreSQL database with the following table schema:
     {TABLE_SCHEMA}
     - The table is named 'inventory'.
-    - The `stencil` column contains the name or code of the stencil.
-    - The `orientation` column is likely 'HRZ' (horizontal) or 'VERT' (vertical).
-    - The `date_of_inventory` column stores dates as text.
-    - **Crucially, to handle whitespace issues in the data, always wrap the column name in the `TRIM()` function when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
-    - **Important: When a user asks about a type of item, such as a 'silkscreen', this information is located in the `MISC. INFO` column. You must search for the term in the `MISC. INFO` column (e.g., `WHERE "MISC. INFO" ILIKE '%silkscreen%'`).**
+    - The `stencil` column contains stencil information.
+    - The `silkscreen` column contains silkscreen information.
+    - The `orientation` column is either 'HRZ' (horizontal) or 'VERT' (vertical).
+    - The `date_of_inventory` column stores dates as text and can be used for sorting. `created_at` is a timestamp that can also be used for finding the most recent entries.
+    - **Crucially, to handle whitespace issues in the data, always wrap column names in `TRIM()` when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
+    - **To get all information for an item, use `SELECT * FROM inventory...`.**
+    - **When a user asks for the "latest" or "most recent" entry for something (e.g., "latest silkscreen"), find the relevant item and order by `date_of_inventory` or `created_at` in descending order and limit the result to 1. For example: `SELECT * FROM inventory WHERE silkscreen IS NOT NULL ORDER BY date_of_inventory DESC LIMIT 1;`**
     - Perform case-insensitive searches using the `ILIKE` operator.
-    - If the user asks for a specific item, use the `=` or `ILIKE` operator. If they are asking a more general question, use `ILIKE` with wildcards (`%`).
-    - If the user asks a general question, try to return all relevant rows.
-    - ALWAYS limit the query to 20 rows using 'LIMIT 20'.
+    - If the user asks for a specific item, use `ILIKE` with wildcards (`%`).
+    - Unless the user asks for a count or a specific number, return all columns (`SELECT *`).
+    - ALWAYS limit the query to 20 rows using 'LIMIT 20' unless a specific limit is requested.
     - Do not include any characters like ```sql or ``` in your response.
-    - Use the conversation history to understand context for follow-up questions. For example, if a user asks "how many are there?", look at the previous question to understand what "they" refers to.
+    - Use the conversation history to understand context for follow-up questions.
     """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -100,11 +104,29 @@ def get_response_from_llm(user_question, db_results, history):
     """
     system_prompt = """
     You are a helpful chatbot assistant. Your user has asked a question, and you have retrieved some information from a database.
-    Your task is to provide a clear, friendly, and concise answer to the user's question based on the provided database results and the conversation history.
-    - Use the conversation history to understand the context of the user's question.
-    - If the database results are empty, inform the user that you couldn't find any information matching their request.
-    - If there are results, summarize them in a natural way. Do not just list the raw data.
-    - If the database query resulted in an error, apologize and say there was a problem retrieving the data.
+    Your task is to provide a clear, friendly, and well-formatted answer based on the provided database results.
+
+    - **Formatting Instructions:**
+      - When presenting the details of an inventory item, display each piece of information on a new line for readability.
+      - Use clear labels for each field (e.g., "Stencil:", "Orientation:").
+      - If a field is empty or null (like `None` or an empty string), either omit it from the response or explicitly state that it's not available (e.g., "Cone Size: Not specified").
+
+    - **Example of a good response:**
+      Here is the information for the item you requested:
+      - Stencil: ST-1234
+      - Orientation: HRZ
+      - Invoice Number: 98765
+      - Cone Size: Not specified
+      - Number of Lines: 2
+      - Misc Info: General purpose
+      - Date of Inventory: 2023-10-26
+      - Silkscreen: SLK-A
+
+    - **Response Logic:**
+      - If the database results are empty, inform the user that you couldn't find any information matching their request.
+      - If there are multiple results, you can summarize them or present the most relevant one.
+      - If the database query resulted in an error, apologize and say there was a problem retrieving the data.
+      - Use the conversation history to understand the context of the user's question.
     """
 
     if db_results and 'error' in db_results:
