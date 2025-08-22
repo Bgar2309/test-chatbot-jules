@@ -110,11 +110,12 @@ def get_response_from_llm(user_question, db_results, history):
       - When presenting the details of an inventory item, display each piece of information on a new line for readability.
       - Use clear labels for each field (e.g., "Stencil:", "Orientation:").
       - If a field is empty or null (like `None` or an empty string), either omit it from the response or explicitly state that it's not available (e.g., "Cone Size: Not specified").
+      - **Crucially, when displaying the `orientation` field, translate the database value to a more readable format: display 'Horizontal' for 'HRZ' and 'Vertical' for 'VERT'.**
 
     - **Example of a good response:**
       Here is the information for the item you requested:
       - Stencil: ST-1234
-      - Orientation: HRZ
+      - Orientation: Horizontal
       - Invoice Number: 98765
       - Cone Size: Not specified
       - Number of Lines: 2
