@@ -68,10 +68,11 @@ def get_sql_from_llm(user_question, history, model):
     - The `stencil` column contains stencil information.
     - The `silkscreen` column contains silkscreen information.
     - The `orientation` column is either 'HRZ' (horizontal) or 'VERT' (vertical).
-    - The `date_of_inventory` column stores dates as text and can be used for sorting. `created_at` is a timestamp that can also be used for finding the most recent entries.
+    - The `date_of_inventory` column is the primary source for all date-related queries. It stores the inventory date as text and can be used for sorting.
+    - The `created_at` column is a technical timestamp and **should not** be used for answering questions about the "latest" item or sorting by date, even if the user mentions "database".
     - **Crucially, to handle whitespace issues in the data, always wrap column names in `TRIM()` when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
     - **To get all information for an item, use `SELECT * FROM inventory...`.**
-    - **When a user asks for the "latest" or "most recent" entry for something (e.g., "latest silkscreen"), find the relevant item and order by `date_of_inventory` or `created_at` in descending order and limit the result to 1. For example: `SELECT * FROM inventory WHERE silkscreen IS NOT NULL ORDER BY date_of_inventory DESC LIMIT 1;`**
+    - **When a user asks for the "latest" or "most recent" entry for something (e.g., "latest silkscreen" or "most recent in the database"), you MUST order by `date_of_inventory` in descending order and limit the result to 1. For example: `SELECT * FROM inventory WHERE silkscreen IS NOT NULL ORDER BY date_of_inventory DESC LIMIT 1;`**
     - Perform case-insensitive searches using the `ILIKE` operator.
     - If the user asks for a specific item, use `ILIKE` with wildcards (`%`).
     - Unless the user asks for a count or a specific number, return all columns (`SELECT *`).
@@ -119,6 +120,8 @@ def get_response_from_llm(user_question, db_results, history, model):
       - Use clear labels for each field (e.g., "Stencil:", "Orientation:").
       - If a field is empty or null (like `None` or an empty string), either omit it from the response or explicitly state that it's not available (e.g., "Cone Size: Not specified").
       - **Crucially, when displaying the `orientation` field, translate the database value to a more readable format: display 'Horizontal' for 'HRZ' and 'Vertical' for 'VERT'.**
+      - **NEVER display the `id` or `created_at` columns.** These are internal database fields and should not be shown to the user.
+      - The primary date to show the user is from the `date_of_inventory` column. Always label it clearly, for example: "Date of Inventory:".
 
     - **Example of a good response:**
       Here is the information for the item you requested:
