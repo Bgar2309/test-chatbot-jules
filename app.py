@@ -62,7 +62,9 @@ def get_sql_from_llm(user_question):
     - The `stencil` column contains the name or code of the stencil.
     - The `orientation` column is likely 'HRZ' (horizontal) or 'VERT' (vertical).
     - The `date_of_inventory` column stores dates as text.
-    - Perform case-insensitive searches where appropriate (e.g., using ILIKE).
+    - **Crucially, to handle whitespace issues in the data, always wrap the column name in the `TRIM()` function when performing string comparisons in a `WHERE` clause (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).**
+    - Perform case-insensitive searches using the `ILIKE` operator.
+    - If the user asks for a specific item, use the `=` or `ILIKE` operator. If they are asking a more general question, use `ILIKE` with wildcards (`%`).
     - If the user asks a general question, try to return all relevant rows.
     - ALWAYS limit the query to 20 rows using 'LIMIT 20'.
     - Do not include any characters like ```sql or ``` in your response.
