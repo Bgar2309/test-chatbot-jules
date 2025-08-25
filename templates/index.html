@@ -133,6 +133,10 @@
             <div id="changelog-en">
                 <ul>
                     <li>
+                        <h3>v1.5 - Internationalization</h3>
+                        <p>Added English and Spanish language support with a language selector.</p>
+                    </li>
+                    <li>
                         <h3>v1.4 - Anti-Hallucination</h3>
                         <p>Strengthened the response model prompt to prevent inventing information when data is missing.</p>
                     </li>
@@ -156,6 +160,10 @@
             </div>
             <div id="changelog-es" class="hidden">
                 <ul>
+                    <li>
+                        <h3>v1.5 - Internacionalización</h3>
+                        <p>Añadido soporte para los idiomas inglés y español con un selector de idioma.</p>
+                    </li>
                     <li>
                         <h3>v1.4 - Anti-Alucinaciones</h3>
                         <p>Se reforzó el prompt del modelo de respuesta para evitar que invente información cuando faltan datos.</p>
@@ -192,8 +200,8 @@
                         <option value="es">Español</option>
                     </select>
                     <select id="model-selector">
-                        <option value="gpt-4o-mini">OpenAI (GPT-4o-mini)</option>
                         <option value="mistral-small-latest">Mistral (Small)</option>
+                        <option value="gpt-4o-mini">OpenAI (GPT-4o-mini)</option>
                     </select>
                     <input type="text" id="message-input" placeholder="Ask a question..." data-translate-placeholder="input_placeholder" autocomplete="off" required>
                     <button type="submit" id="send-button" data-translate="send_button">Send</button>
@@ -251,7 +259,7 @@
 
             // Update changelog
             document.getElementById('changelog-en').classList.toggle('hidden', lang !== 'en');
-            document.getElementById('changelog-es').classList.toggle('hidden', lang === 'en');
+            document.getElementById('changelog-es').classList.toggle('hidden', lang !== 'es');
 
             // Update initial message in chat history
             chatHistory[0] = { role: 'assistant', content: translations[lang].initial_bot_message };

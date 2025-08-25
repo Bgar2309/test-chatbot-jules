@@ -150,7 +150,7 @@ def chat():
     data = request.get_json()
     user_question = data.get("message")
     history = data.get("history", [])
-    model = data.get("model", "gpt-4o-mini")
+    model = data.get("model", "mistral-small-latest")
     language = data.get("language", "en")
 
     if not user_question:
