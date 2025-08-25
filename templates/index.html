@@ -110,7 +110,7 @@
             cursor: pointer;
             font-size: 16px;
         }
-        #model-selector {
+        #model-selector, #language-selector {
             padding: 8px;
             border-radius: 5px;
             border: 1px solid #ccc;
@@ -121,49 +121,82 @@
             color: #888;
             text-align: center;
         }
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div id="app-container">
         <div id="changelog-sidebar">
-            <h2>Dernières versions</h2>
-            <ul>
-                <li>
-                    <h3>v1.4 - Anti-Hallucination</h3>
-                    <p>Le prompt du modèle de réponse a été renforcé pour empêcher l'invention d'informations lorsque les données sont manquantes.</p>
-                </li>
-                <li>
-                    <h3>v1.3 - Amélioration des dates</h3>
-                    <p>Le prompt de génération SQL a été rendu plus strict pour forcer l'utilisation de `date_of_inventory` et ignorer les dates nulles.</p>
-                </li>
-                <li>
-                    <h3>v1.2 - Correction de bugs Mistral</h3>
-                    <p>Correction des erreurs de crash avec le modèle Mistral en utilisant une version stable de la librairie et en adaptant les appels API.</p>
-                </li>
-                <li>
-                    <h3>v1.1 - Ajout de Mistral AI</h3>
-                    <p>Ajout d'un sélecteur de modèle pour permettre de choisir entre OpenAI (GPT-4o-mini) et Mistral (Mistral Small).</p>
-                </li>
-                 <li>
-                    <h3>v1.0 - Version initiale</h3>
-                    <p>Première version du chatbot d'inventaire utilisant le modèle d'OpenAI pour générer des requêtes SQL.</p>
-                </li>
-            </ul>
+            <h2 data-translate="changelog_title">Latest Updates</h2>
+            <div id="changelog-en">
+                <ul>
+                    <li>
+                        <h3>v1.4 - Anti-Hallucination</h3>
+                        <p>Strengthened the response model prompt to prevent inventing information when data is missing.</p>
+                    </li>
+                    <li>
+                        <h3>v1.3 - Date Handling Improved</h3>
+                        <p>Made the SQL generation prompt stricter to enforce using `date_of_inventory` and ignore null dates.</p>
+                    </li>
+                    <li>
+                        <h3>v1.2 - Mistral Bug Fix</h3>
+                        <p>Fixed crashing errors with the Mistral model by using a stable library version and adapting API calls.</p>
+                    </li>
+                    <li>
+                        <h3>v1.1 - Added Mistral AI</h3>
+                        <p>Added a model selector to choose between OpenAI (GPT-4o-mini) and Mistral (Mistral Small).</p>
+                    </li>
+                     <li>
+                        <h3>v1.0 - Initial Release</h3>
+                        <p>First version of the inventory chatbot using OpenAI's model to generate SQL queries.</p>
+                    </li>
+                </ul>
+            </div>
+            <div id="changelog-es" class="hidden">
+                <ul>
+                    <li>
+                        <h3>v1.4 - Anti-Alucinaciones</h3>
+                        <p>Se reforzó el prompt del modelo de respuesta para evitar que invente información cuando faltan datos.</p>
+                    </li>
+                    <li>
+                        <h3>v1.3 - Manejo de Fechas Mejorado</h3>
+                        <p>Se hizo más estricto el prompt de generación de SQL para forzar el uso de `date_of_inventory` e ignorar fechas nulas.</p>
+                    </li>
+                    <li>
+                        <h3>v1.2 - Corrección de Error de Mistral</h3>
+                        <p>Se corrigieron errores de crasheo con el modelo Mistral usando una versión estable de la librería y adaptando las llamadas a la API.</p>
+                    </li>
+                    <li>
+                        <h3>v1.1 - Añadido Mistral AI</h3>
+                        <p>Se añadió un selector de modelo para elegir entre OpenAI (GPT-4o-mini) y Mistral (Mistral Small).</p>
+                    </li>
+                     <li>
+                        <h3>v1.0 - Versión Inicial</h3>
+                        <p>Primera versión del chatbot de inventario que utiliza el modelo de OpenAI para generar consultas SQL.</p>
+                    </li>
+                </ul>
+            </div>
         </div>
         <div id="main-content">
             <div id="chat-container">
                 <div id="chat-window">
-                    <div class="message bot-message">
+                    <div class="message bot-message" data-translate="initial_bot_message">
                         Hello! I'm your inventory assistant. Ask me questions about the stencil inventory.
                     </div>
                 </div>
                 <form id="chat-form">
+                    <select id="language-selector">
+                        <option value="en">English</option>
+                        <option value="es">Español</option>
+                    </select>
                     <select id="model-selector">
                         <option value="gpt-4o-mini">OpenAI (GPT-4o-mini)</option>
                         <option value="mistral-small-latest">Mistral (Small)</option>
                     </select>
-                    <input type="text" id="message-input" placeholder="Ask a question..." autocomplete="off" required>
-                    <button type="submit" id="send-button">Send</button>
+                    <input type="text" id="message-input" placeholder="Ask a question..." data-translate-placeholder="input_placeholder" autocomplete="off" required>
+                    <button type="submit" id="send-button" data-translate="send_button">Send</button>
                 </form>
             </div>
         </div>
@@ -174,9 +207,67 @@
         const messageInput = document.getElementById('message-input');
         const chatWindow = document.getElementById('chat-window');
         const modelSelector = document.getElementById('model-selector');
+        const languageSelector = document.getElementById('language-selector');
         let chatHistory = [];
 
-        chatHistory.push({ role: 'assistant', content: "Hello! I'm your inventory assistant. Ask me questions about the stencil inventory." });
+        const translations = {
+            'en': {
+                'app_title': "Inventory Chatbot",
+                'changelog_title': "Latest Updates",
+                'initial_bot_message': "Hello! I'm your inventory assistant. Ask me questions about the stencil inventory.",
+                'input_placeholder': "Ask a question...",
+                'send_button': "Send",
+                'thinking_message': "Thinking...",
+                'error_message': "Sorry, I am having trouble connecting to the server."
+            },
+            'es': {
+                'app_title': "Chatbot de Inventario",
+                'changelog_title': "Últimas Actualizaciones",
+                'initial_bot_message': "¡Hola! Soy tu asistente de inventario. Hazme preguntas sobre el inventario de stencils.",
+                'input_placeholder': "Haz una pregunta...",
+                'send_button': "Enviar",
+                'thinking_message': "Pensando...",
+                'error_message': "Lo siento, tengo problemas para conectarme al servidor."
+            }
+        };
+
+        function setLanguage(lang) {
+            document.documentElement.lang = lang;
+            document.title = translations[lang].app_title;
+
+            document.querySelectorAll('[data-translate]').forEach(el => {
+                const key = el.getAttribute('data-translate');
+                if (translations[lang][key]) {
+                    el.textContent = translations[lang][key];
+                }
+            });
+
+            document.querySelectorAll('[data-translate-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-translate-placeholder');
+                if (translations[lang][key]) {
+                    el.placeholder = translations[lang][key];
+                }
+            });
+
+            // Update changelog
+            document.getElementById('changelog-en').classList.toggle('hidden', lang !== 'en');
+            document.getElementById('changelog-es').classList.toggle('hidden', lang === 'en');
+
+            // Update initial message in chat history
+            chatHistory[0] = { role: 'assistant', content: translations[lang].initial_bot_message };
+        }
+
+        languageSelector.addEventListener('change', (e) => {
+            setLanguage(e.target.value);
+
+            // Clear chat and show initial message in new language
+            chatWindow.innerHTML = '';
+            addMessageToWindow('bot', translations[e.target.value].initial_bot_message);
+        });
+
+        setLanguage('en'); // Set default language
+        chatHistory.push({ role: 'assistant', content: translations['en'].initial_bot_message });
+
 
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -184,6 +275,7 @@
             if (!message) return;
 
             const selectedModel = modelSelector.value;
+            const selectedLang = languageSelector.value;
 
             addMessageToWindow('user', message);
             chatHistory.push({ role: 'user', content: message });
@@ -201,7 +293,8 @@
                     body: JSON.stringify({
                         message: message,
                         history: limitedHistory,
-                        model: selectedModel
+                        model: selectedModel,
+                        language: selectedLang
                     }),
                 });
 
@@ -211,7 +304,7 @@
 
             } catch (error) {
                 console.error('Error:', error);
-                const errorMessage = 'Sorry, I am having trouble connecting to the server.';
+                const errorMessage = translations[selectedLang].error_message;
                 addMessageToWindow('bot', errorMessage);
                 chatHistory.push({ role: 'assistant', content: errorMessage });
             } finally {
@@ -231,12 +324,13 @@
         }
 
         function showThinkingIndicator(show) {
+            const selectedLang = languageSelector.value;
             let thinkingDiv = document.querySelector('.thinking');
             if (show) {
                 if (!thinkingDiv) {
                     thinkingDiv = document.createElement('div');
                     thinkingDiv.classList.add('thinking', 'message', 'bot-message');
-                    thinkingDiv.textContent = 'Thinking...';
+                    thinkingDiv.textContent = translations[selectedLang].thinking_message;
                     chatWindow.appendChild(thinkingDiv);
                     chatWindow.scrollTop = chatWindow.scrollHeight;
                 }

@@ -5,6 +5,7 @@ from supabase import create_client, Client
 from openai import OpenAI
 from mistralai.client import MistralClient
 from dotenv import load_dotenv
+from prompts import PROMPTS
 
 # Load environment variables from .env file
 load_dotenv()
@@ -55,33 +56,11 @@ CREATE TABLE inventory (
 """
 
 # --- Core Logic Functions ---
-def get_sql_from_llm(user_question, history, model):
+def get_sql_from_llm(user_question, history, model, language='en'):
     """
     Uses the selected LLM to convert a user's question into a SQL query.
     """
-    system_prompt = f"""
-    You are a hyper-specialized SQL generation bot. Your single purpose is to convert user questions into a valid PostgreSQL query for the `inventory` table. You must adhere to the following rules with no exceptions.
-
-    **Primary Directive: Date Queries**
-    - The user's concept of "date", "latest", "newest", or "most recent" ALWAYS refers to the `date_of_inventory` column.
-    - The `created_at` column is a technical field and you are FORBIDDEN from using it in any `ORDER BY` clause for date-related queries.
-    - When the user asks for the "latest" or "most recent" item, your query MUST:
-        1. Filter for entries where the inventory date exists: `WHERE date_of_inventory IS NOT NULL AND date_of_inventory != ''`
-        2. Order the results by inventory date: `ORDER BY date_of_inventory DESC`
-        3. Return only the top result: `LIMIT 1`
-    - Example for "latest silkscreen": `SELECT * FROM inventory WHERE silkscreen IS NOT NULL AND date_of_inventory IS NOT NULL AND date_of_inventory != '' ORDER BY date_of_inventory DESC LIMIT 1;`
-
-    **General Query Rules:**
-    - Table name: `inventory`
-    - Schema:
-      {TABLE_SCHEMA}
-    - For string comparisons (e.g., on `stencil` or `silkscreen`), always use `TRIM()` and `ILIKE` for case-insensitive and whitespace-tolerant matching (e.g., `WHERE TRIM(stencil) ILIKE '%search_term%'`).
-    - Unless the user asks for a specific count, always select all columns: `SELECT *`.
-    - Limit all queries to a maximum of 20 rows (`LIMIT 20`) unless a different limit is requested.
-
-    **Output Format:**
-    - You must only respond with the raw SQL query. No explanations, no markdown, no "```sql".
-    """
+    system_prompt = PROMPTS[language]['sql_system_prompt'].format(schema=TABLE_SCHEMA)
 
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
@@ -109,29 +88,11 @@ def get_sql_from_llm(user_question, history, model):
         print(f"Error generating SQL query with model {model}: {e}")
         return None
 
-def get_response_from_llm(user_question, db_results, history, model):
+def get_response_from_llm(user_question, db_results, history, model, language='en'):
     """
     Uses the selected LLM to generate a natural language response.
     """
-    system_prompt = """
-    You are a helpful but strictly factual chatbot assistant. Your task is to present information from a database search result. You must be precise and never invent information.
-
-    **Primary Directive: Factual Reporting**
-    - You MUST only use information explicitly provided in the "Database search results".
-    - If a field in the database result is empty, null, or not present, you MUST state "Not specified" or "Not available".
-    - **DO NOT HALLUCINATE:** Under no circumstances should you invent, guess, or infer a value for a field that is empty. For example, if `date_of_inventory` is empty, do not fill it in with a value from another field like `invoice_number`. This is strictly forbidden.
-
-    **Formatting Instructions:**
-    - Present each piece of information on a new line with a clear label (e.g., "Stencil:").
-    - **NEVER display the `id` or `created_at` columns.** These are internal database fields.
-    - Translate `orientation`: 'HRZ' to 'Horizontal', 'VERT' to 'Vertical'.
-    - The primary date to show the user is from the `date_of_inventory` column. Label it "Date of Inventory:".
-
-    **Response Logic:**
-    - If the database results are empty, inform the user that you couldn't find any information matching their request.
-    - If the database query resulted in an error, apologize and say there was a problem retrieving the data.
-    - Use the conversation history to understand the context of the user's question.
-    """
+    system_prompt = PROMPTS[language]['response_system_prompt']
 
     if db_results and 'error' in db_results:
         results_str = f"An error occurred: {db_results['error']}"
@@ -189,14 +150,15 @@ def chat():
     data = request.get_json()
     user_question = data.get("message")
     history = data.get("history", [])
-    model = data.get("model", "gpt-4o-mini") # Default to OpenAI model
+    model = data.get("model", "gpt-4o-mini")
+    language = data.get("language", "en")
 
     if not user_question:
         return jsonify({"error": "No message provided"}), 400
 
-    sql_query = get_sql_from_llm(user_question, history, model)
+    sql_query = get_sql_from_llm(user_question, history, model, language)
     if not sql_query:
-        return jsonify({"response": "Sorry, I couldn't understand your request. Could you please rephrase it?"})
+        return jsonify({"response": PROMPTS[language]['rephrase_message']})
 
     cleaned_sql_query = sql_query.strip().rstrip(';')
     print(f"Generated SQL Query with {model}: {cleaned_sql_query}")
@@ -210,7 +172,7 @@ def chat():
 
     print(f"Database results: {db_results}")
 
-    final_response = get_response_from_llm(user_question, db_results, history, model)
+    final_response = get_response_from_llm(user_question, db_results, history, model, language)
     return jsonify({"response": final_response})
 
 # --- Main Execution ---
