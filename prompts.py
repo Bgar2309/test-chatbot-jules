@@ -6,6 +6,10 @@ PROMPTS = {
         'changelog_title': "Latest Updates",
         'changelog': [
             {
+                'version': "v1.5 - Internationalization",
+                'description': "Added English and Spanish language support with a language selector."
+            },
+            {
                 'version': "v1.4 - Anti-Hallucination",
                 'description': "Strengthened the response model prompt to prevent inventing information when data is missing."
             },
@@ -80,6 +84,10 @@ You are a helpful but strictly factual chatbot assistant. Your task is to presen
         'app_title': "Chatbot de Inventario",
         'changelog_title': "Últimas Actualizaciones",
         'changelog': [
+            {
+                'version': "v1.5 - Internacionalización",
+                'description': "Añadido soporte para los idiomas inglés y español con un selector de idioma."
+            },
             {
                 'version': "v1.4 - Anti-Alucinaciones",
                 'description': "Se reforzó el prompt del modelo de respuesta para evitar que invente información cuando faltan datos."
