@@ -108,42 +108,6 @@ def load_and_clean_excel_file(excel_path):
 
     return final_df
 
-# --- Main Execution Logic ---
-
-def main():
-    """
-    Main function to run the synchronization process.
-    """
-    print("--- Starting Inventory Sync Process ---")
-
-    # 1. Find a new file to process
-    new_file_path = find_new_file()
-    if not new_file_path:
-        print("No new files to process in the 'nouveaux_fichiers/' directory.")
-        print("--- Sync Process Finished ---")
-        return
-
-    print(f"Found new file: {new_file_path}")
-
-    # 2. Load and clean the data from the Excel file
-    try:
-        data_from_excel = load_and_clean_excel_file(new_file_path)
-        if data_from_excel.empty:
-            print("The Excel file was empty or contained no processable data.")
-            # We should probably archive the empty file here as well.
-        else:
-            print(f"Successfully loaded and cleaned {len(data_from_excel)} rows from the file.")
-            # For now, just display the first 5 rows
-            print("Data preview:")
-            print(data_from_excel.head())
-
-    except Exception as e:
-        print(f"An error occurred while processing the file {new_file_path}: {e}")
-        # Decide if the file should be moved to an error folder or left alone
-        return
-
-    # The next steps (connecting to Supabase, comparing data, etc.) will be added here.
-
 def create_unique_ids(df):
     """
     Creates a unique ID for each row by combining the item identifier and the date.
@@ -156,7 +120,13 @@ def create_unique_ids(df):
     # 1. Coalesce STENCIL and SILKSCREEN into a single identifier column
     df['item_identifier'] = df['STENCIL'].fillna(df['SILKSCREEN'])
 
-    # 2. Convert date column, coercing errors to NaT (Not a Time)
+    # 2. Normalize the identifier to a consistent string format to prevent mismatches
+    #    -astype(str): Handles numbers, etc.
+    #    -str.strip(): Removes leading/trailing whitespace.
+    #    -str.replace(...): Removes trailing '.0' for numeric IDs read as float.
+    df['item_identifier'] = df['item_identifier'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+
+    # 3. Convert date column, coercing errors to NaT (Not a Time)
     # This handles malformed date strings gracefully.
     df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
 
@@ -213,8 +183,6 @@ def main():
         print(f"An error occurred while processing the file {new_file_path}: {e}")
         # Decide if the file should be moved to an error folder or left alone
         return
-
-    # The next steps (connecting to Supabase, comparing data, etc.) will be added here.
 
 def get_existing_data_from_supabase():
     """
@@ -302,8 +270,6 @@ def main():
     except Exception as e:
         print(f"An error occurred while processing the file {new_file_path}: {e}")
         return
-
-    # The next steps (comparing data, etc.) will be added here.
 
 def filter_new_entries(df, existing_ids_set):
     """
