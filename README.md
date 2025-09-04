@@ -92,3 +92,21 @@ If everything is configured correctly, you will see a message that the applicati
 ### 9. Use the Chatbot
 
 Open your web browser and navigate to `http://127.0.0.1:5000`. You should see the chat interface, ready to answer your questions!
+
+### Mise à jour hebdomadaire NJ :
+
+```bash
+python refresh_database.py NJ  # Seulement NJ, CA/TX intacts
+```
+
+### Ajout initial CA et TX :
+```bash
+# Placez les fichiers Excel CA et TX, puis:
+python refresh_database.py CA
+python refresh_database.py TX
+```
+
+### Mise à jour globale occasionnelle :
+```bash
+python refresh_database.py
+```
