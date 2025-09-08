@@ -91,6 +91,20 @@
         .status-message.info {
             color: #17a2b8;
         }
+        .log-container {
+            background-color: #2d3748;
+            color: #f7fafc;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            text-align: left;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            display: none; /* Hidden by default */
+        }
     </style>
 </head>
 <body>
@@ -98,6 +112,7 @@
     <header>
         <h1>Admin Panel: Inventory File Upload</h1>
         <a href="/">&larr; Back to Chat</a>
+        <a href="/logout" style="left: auto; right: 20px;">Logout &rarr;</a>
     </header>
 
     <div class="container">
@@ -109,6 +124,7 @@
                 <input type="file" class="file-input" id="file-input-{{ code }}" data-warehouse="{{ code }}" accept=".xlsx, .xls">
             </div>
             <div class="status-message" id="status-{{ code }}"></div>
+            <div class="log-container" id="logs-{{ code }}"></div>
         </div>
         {% endfor %}
     </div>
@@ -118,19 +134,16 @@
             const warehouse = area.dataset.warehouse;
             const fileInput = document.getElementById(`file-input-${warehouse}`);
             const statusDiv = document.getElementById(`status-${warehouse}`);
+            const logContainer = document.getElementById(`logs-${warehouse}`);
 
-            // Click to open file dialog
             area.addEventListener('click', () => fileInput.click());
 
-            // Drag and drop events
             area.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 area.classList.add('dragover');
             });
 
-            area.addEventListener('dragleave', () => {
-                area.classList.remove('dragover');
-            });
+            area.addEventListener('dragleave', () => area.classList.remove('dragover'));
 
             area.addEventListener('drop', (e) => {
                 e.preventDefault();
@@ -142,17 +155,17 @@
                 }
             });
 
-            // File input change event
             fileInput.addEventListener('change', () => {
-                const file = fileInput.files[0];
-                if (file) {
-                    uploadFile(file, warehouse);
+                if (fileInput.files.length > 0) {
+                    uploadFile(fileInput.files[0], warehouse);
                 }
             });
 
             async function uploadFile(file, warehouseCode) {
                 statusDiv.className = 'status-message info';
                 statusDiv.textContent = `Uploading ${file.name}...`;
+                logContainer.innerHTML = '';
+                logContainer.style.display = 'none';
 
                 const formData = new FormData();
                 formData.append('file', file);
@@ -167,8 +180,8 @@
                     const result = await response.json();
 
                     if (response.ok && result.success) {
-                        statusDiv.className = 'status-message success';
                         statusDiv.textContent = result.message;
+                        streamLogs(warehouseCode);
                     } else {
                         statusDiv.className = 'status-message error';
                         statusDiv.textContent = result.message || 'An unknown error occurred.';
@@ -176,8 +189,38 @@
                 } catch (error) {
                     statusDiv.className = 'status-message error';
                     statusDiv.textContent = 'Failed to connect to the server.';
-                    console.error('Upload error:', error);
                 }
+            }
+
+            function streamLogs(warehouseCode) {
+                logContainer.style.display = 'block';
+                const eventSource = new EventSource(`/stream-refresh/${warehouseCode}`);
+
+                eventSource.onmessage = function(event) {
+                    const message = event.data;
+
+                    if (message === "__SUCCESS__") {
+                        statusDiv.className = 'status-message success';
+                        statusDiv.textContent = 'Database refresh completed successfully!';
+                        logContainer.innerHTML += "\n🎉 SUCCESS! Closing connection.";
+                        eventSource.close();
+                    } else if (message === "__FAILURE__") {
+                        statusDiv.className = 'status-message error';
+                        statusDiv.textContent = 'Database refresh failed. Check logs for details.';
+                        logContainer.innerHTML += "\n❌ FAILURE! Closing connection.";
+                        eventSource.close();
+                    } else {
+                        logContainer.innerHTML += message + '\n';
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                };
+
+                eventSource.onerror = function() {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = 'Connection to log stream failed.';
+                    logContainer.innerHTML += "\n❌ ERROR: Connection to server lost.";
+                    eventSource.close();
+                };
             }
         });
     </script>

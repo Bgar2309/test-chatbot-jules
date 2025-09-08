@@ -1,6 +1,6 @@
 import os
 import sys
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, Response
 from supabase import create_client, Client
 from openai import OpenAI
 from mistralai.client import MistralClient
@@ -17,8 +17,10 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 openai_api_key = os.environ.get("OPENAI_API_KEY")
 mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+secret_key = os.environ.get("SECRET_KEY")
+admin_password = os.environ.get("ADMIN_PASSWORD")
 
-if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key]):
+if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key, secret_key, admin_password]):
     print("---" * 10)
     print("ERROR: Missing required environment variables.")
     print("Please ensure your .env file is correctly set up with:")
@@ -26,6 +28,8 @@ if not all([supabase_url, supabase_key, openai_api_key, mistral_api_key]):
     print("- SUPABASE_KEY")
     print("- OPENAI_API_KEY")
     print("- MISTRAL_API_KEY")
+    print("- SECRET_KEY")
+    print("- ADMIN_PASSWORD")
     print("---" * 10)
     sys.exit(1)
 
@@ -40,6 +44,7 @@ except Exception as e:
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
+app.config['SECRET_KEY'] = secret_key
 
 # --- App Constants ---
 TABLE_SCHEMA = """
@@ -270,11 +275,36 @@ def get_response_from_llm(user_question, db_results, history, model, warehouses)
 def home():
     return render_template('index.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """
+    Handles the login process.
+    """
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if password == admin_password:
+            session['authenticated'] = True
+            return redirect(url_for('admin'))
+        else:
+            return render_template('login.html', error="Invalid password")
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """
+    Logs the user out.
+    """
+    session.pop('authenticated', None)
+    return redirect(url_for('login'))
+
 @app.route('/admin')
 def admin():
     """
-    Serves the admin page for file uploads.
+    Serves the admin page for file uploads, protected by login.
     """
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+
     # We pass the warehouse info to the template, excluding the 'ALL' entry
     warehouses_for_upload = {k: v for k, v in WAREHOUSE_INFO.items() if k != 'ALL'}
     return render_template('admin.html', warehouses=warehouses_for_upload)
@@ -282,8 +312,12 @@ def admin():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """
-    Handles file uploads and triggers the database refresh.
+    Handles file uploads, protected by login.
+    This route only saves the file. The refresh is triggered by the client.
     """
+    if not session.get('authenticated'):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
     if 'file' not in request.files:
         return jsonify({"success": False, "message": "No file part in the request"}), 400
 
@@ -298,41 +332,38 @@ def upload_file():
 
     if file:
         filename = secure_filename(file.filename)
-        # Define the path to the warehouse-specific folder
         upload_folder = Path(f"data/warehouses/{warehouse}")
-        # Create the directory if it doesn't exist
         upload_folder.mkdir(parents=True, exist_ok=True)
 
-        # Clean up old .xlsx files in the directory to avoid confusion
         for old_file in upload_folder.glob('*.xlsx'):
             try:
                 os.remove(old_file)
-                print(f"🗑️ Removed old file: {old_file}")
             except OSError as e:
-                print(f"Error removing old file {old_file}: {e}")
                 return jsonify({"success": False, "message": f"Error cleaning up old files: {e}"}), 500
 
-        # Save the new file
         file_path = upload_folder / filename
         file.save(file_path)
-        print(f"✅ File '{filename}' uploaded to '{file_path}'")
 
-        # Trigger the database refresh for the specified warehouse
-        print(f"🔄 Triggering database refresh for {warehouse}...")
-        success = refresh_inventory_database(warehouse_code=warehouse)
-
-        if success:
-            return jsonify({
-                "success": True,
-                "message": f"✅ {warehouse} inventory updated successfully from {filename}!"
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": f"❌ Error updating database for {warehouse}. Check server logs for details."
-            }), 500
+        return jsonify({
+            "success": True,
+            "message": f"File '{filename}' uploaded. Starting database refresh..."
+        })
 
     return jsonify({"success": False, "message": "An unexpected error occurred during upload"}), 500
+
+@app.route('/stream-refresh/<warehouse>')
+def stream_refresh(warehouse):
+    """
+    Streams the database refresh logs to the client using SSE.
+    """
+    if not session.get('authenticated'):
+        return Response("Unauthorized", status=401)
+
+    def generate_logs():
+        for log_line in refresh_inventory_database(warehouse_code=warehouse):
+            yield f"data: {log_line}\n\n"
+
+    return Response(generate_logs(), mimetype='text/event-stream')
 
 @app.route('/chat', methods=['POST'])
 def chat():
