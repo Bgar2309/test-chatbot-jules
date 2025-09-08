@@ -163,16 +163,16 @@ def read_and_clean_excel(excel_path):
         all_cleaned_dfs = []
         with pd.ExcelFile(excel_path) as xls:
             sheet_names = xls.sheet_names
-            yield f"📋 Feuilles trouvées: {sheet_names}"
+            yield f"📋 Sheets found: {sheet_names}"
             
             sheets_to_process = sheet_names[1:] if len(sheet_names) > 1 else sheet_names
             
             for sheet in sheets_to_process:
-                yield f"  📄 Traitement de la feuille '{sheet}'..."
+                yield f"  📄 Processing sheet '{sheet}'..."
                 df = pd.read_excel(xls, sheet_name=sheet)
                 
                 if df.empty:
-                    yield f"    - Feuille '{sheet}' est vide, ignorée."
+                    yield f"    - Sheet '{sheet}' is empty, skipping."
                     continue
                 
                 df.dropna(how='all', inplace=True)
@@ -181,15 +181,16 @@ def read_and_clean_excel(excel_path):
                 df.columns = [str(col).strip().upper() for col in df.columns]
                 if 'STENCILS' in df.columns: df.rename(columns={'STENCILS': 'STENCIL'}, inplace=True)
                 
-                yield f"    - {len(df)} lignes trouvées dans '{sheet}'"
+                yield f"    - Found {len(df)} rows in '{sheet}'"
                 all_cleaned_dfs.append(df)
         
         if not all_cleaned_dfs:
-            yield "❌ Aucune donnée valide trouvée dans les feuilles."
+            yield "❌ No valid data found in sheets."
             yield ('result', None)
             return
             
         combined_df = pd.concat(all_cleaned_dfs, ignore_index=True)
+        yield f" consolidating {len(combined_df)} total rows..."
         
         final_df = pd.DataFrame()
         column_mapping = {
@@ -200,15 +201,37 @@ def read_and_clean_excel(excel_path):
         
         for excel_col, db_col in column_mapping.items():
             if excel_col in combined_df.columns:
-                final_df[db_col] = combined_df[excel_col]
+                # Apply specific cleaning based on the column
+                if db_col == 'orientation':
+                    # Standardize orientation: only 'HRZ', 'VERT', or None are allowed
+                    final_df[db_col] = combined_df[excel_col].apply(
+                        lambda x: str(x).strip().upper() if pd.notna(x) and str(x).strip() != '' else None
+                    )
+                    # Map common variations to the standard values
+                    orientation_map = {'HORIZONTAL': 'HRZ', 'VERTICAL': 'VERT'}
+                    final_df[db_col] = final_df[db_col].replace(orientation_map)
+                    # Set any value that is not HRZ or VERT to None
+                    final_df[db_col] = final_df[db_col].apply(
+                        lambda x: x if x in ['HRZ', 'VERT'] else None
+                    )
+                elif db_col == 'date_of_inventory':
+                    # Convert dates to strings to avoid JSON serialization issues
+                    final_df[db_col] = pd.to_datetime(combined_df[excel_col], errors='coerce').apply(
+                        lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else None
+                    )
+                else:
+                    # For all other columns, just convert to string and strip whitespace
+                    final_df[db_col] = combined_df[excel_col].apply(
+                        lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != '' else None
+                    )
             else:
-                final_df[db_col] = None
+                final_df[db_col] = None # Add missing columns with None
         
-        yield "✅ Nettoyage des données terminé."
+        yield "✅ Data cleaning complete."
         yield ('result', final_df)
         
     except Exception as e:
-        yield f"❌ Erreur lors de la lecture du fichier Excel: {e}"
+        yield f"❌ Error while reading Excel file: {e}"
         yield ('result', None)
 
 def list_available_files():
