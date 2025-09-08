@@ -101,14 +101,23 @@ def refresh_inventory_database(warehouse_code=None):
                 
             df['warehouse'] = warehouse
             yield f"📈 Found {len(df)} total entries for {warehouse}."
-            
-            yield f"🗑️ Deleting existing data for {warehouse}..."
+
+            # Check existing rows and attempt to delete them
             try:
-                supabase.table("inventory").delete().eq("warehouse", warehouse).execute()
-                yield "✅ Data deleted."
+                count_req = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
+                existing_rows = count_req.count
+                yield f"🔍 Found {existing_rows} existing rows for {warehouse} in the database."
+                if existing_rows > 0:
+                    yield f"🗑️ Deleting {existing_rows} existing rows..."
+                    # Note: supabase-py v1 does not easily return the count of deleted rows.
+                    # We proceed and verify with a final count later.
+                    supabase.table("inventory").delete().eq("warehouse", warehouse).execute()
+                    yield "✅ Delete command sent. IMPORTANT: This may fail silently if Row Level Security (RLS) policies are preventing deletion."
             except Exception as e:
-                yield f"⚠️ Could not delete data (this might be normal): {e}"
-            
+                yield f"⚠️ Could not delete data: {e}"
+                yield "__FAILURE__"
+                continue # Skip to next warehouse
+
             chunk_size = 100
             total_chunks = (len(df) + chunk_size - 1) // chunk_size
             yield f"📤 Uploading data in {total_chunks} chunks..."
@@ -139,7 +148,14 @@ def refresh_inventory_database(warehouse_code=None):
                 yield f"🎉 Update successful for {warehouse}! ({count_result.count} entries)"
                 success_count += 1
             else:
-                yield f"⚠️ Mismatch for {warehouse}: expected {len(df)}, found {count_result.count}"
+                yield ""
+                yield f"🔥🔥🔥 CRITICAL MISMATCH for {warehouse} 🔥🔥🔥"
+                yield f"   - Expected Entries: {len(df)}"
+                yield f"   - Final Entries in DB: {count_result.count}"
+                yield "   - This means the old data was NOT deleted correctly."
+                yield "   - LIKELY CAUSE: A Row Level Security (RLS) policy on the 'inventory' table is blocking DELETE operations."
+                yield "   - TO FIX: Please go to the Supabase dashboard, navigate to 'Authentication' -> 'Policies', and ensure you have a policy that allows deletes."
+                yield ""
         
         yield f"\n{'='*60}"
         yield f"🎯 FINAL SUMMARY"
