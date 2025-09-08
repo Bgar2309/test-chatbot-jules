@@ -28,6 +28,23 @@
         #sidebar h2 {
             margin-top: 0;
             color: #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .admin-link {
+            font-size: 12px;
+            font-weight: normal;
+            color: #007bff;
+            text-decoration: none;
+            border: 1px solid #007bff;
+            padding: 4px 8px;
+            border-radius: 5px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .admin-link:hover {
+            background-color: #007bff;
+            color: white;
         }
         .warehouse-stats {
             background: white;
@@ -206,7 +223,10 @@
 <body>
     <div id="app-container">
         <div id="sidebar">
-            <h2>📊 Warehouse Stats</h2>
+            <h2>
+                📊 Warehouse Stats
+                <a href="/admin" class="admin-link">⚙️ Admin</a>
+            </h2>
             <div id="warehouse-stats-container">
                 <div class="loading">Loading warehouse statistics...</div>
             </div>

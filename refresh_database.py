@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import glob
 import numpy as np
+import time
 
 # Configuration des chemins
 WAREHOUSE_CONFIG = {
@@ -26,59 +27,30 @@ WAREHOUSE_CONFIG = {
 
 def find_excel_file(warehouse_folder, warehouse_code):
     """
-    Trouve automatiquement le fichier Excel dans le dossier de l'entrepôt.
-    Cherche des patterns comme:
-    - NJ_STENCIL_INVENTORY.xlsx
-    - NJ STENCIL INVENTORY.xlsx  
-    - NJ STENCIL INVENTORY (2).xlsx
-    etc.
+    Finds the latest Excel file in the warehouse folder.
+    Yields log messages and the final path as ('result', path).
     """
-    possible_patterns = [
-        f"{warehouse_code}_STENCIL_INVENTORY.xlsx",
-        f"{warehouse_code} STENCIL INVENTORY.xlsx",
-        f"{warehouse_code} STENCIL INVENTORY (2).xlsx",
-        f"{warehouse_code} STENCIL INVENTORY (3).xlsx",
-        f"{warehouse_code}_inventory.xlsx",
-        f"{warehouse_code}_INVENTORY.xlsx"
-    ]
+    patterns = [f"{warehouse_code} STENCIL INVENTORY*.xlsx"]
     
-    for pattern in possible_patterns:
-        full_path = os.path.join(warehouse_folder, pattern)
-        if os.path.exists(full_path):
-            print(f"📄 Fichier Excel trouvé: {full_path}")
-            return full_path
+    all_files = []
+    for pattern in patterns:
+        all_files.extend(glob.glob(os.path.join(warehouse_folder, pattern)))
     
-    # Si aucun pattern spécifique trouvé, chercher n'importe quel .xlsx
-    xlsx_files = glob.glob(os.path.join(warehouse_folder, "*.xlsx"))
-    if xlsx_files:
-        print(f"📄 Fichier Excel détecté automatiquement: {xlsx_files[0]}")
-        return xlsx_files[0]
-    
-    return None
+    if not all_files:
+        # Fallback to any xlsx file if specific patterns don't match
+        all_files = glob.glob(os.path.join(warehouse_folder, "*.xlsx"))
 
-def create_directory_structure():
-    """
-    Crée la structure de dossiers si elle n'existe pas.
-    """
-    directories = [
-        "data",
-        "data/warehouses",
-        "data/warehouses/NJ",
-        "data/warehouses/CA", 
-        "data/warehouses/TX",
-        "data/exports"
-    ]
-    
-    for directory in directories:
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        print(f"📁 Dossier créé/vérifié: {directory}")
+    if all_files:
+        latest_file = max(all_files, key=os.path.getmtime)
+        yield f"📄 Fichier Excel trouvé: {os.path.basename(latest_file)}"
+        yield ('result', latest_file)
+    else:
+        yield ('result', None)
 
 def refresh_inventory_database(warehouse_code=None):
     """
-    Efface et recrée les données pour un ou tous les entrepôts.
-    
-    Args:
-        warehouse_code (str): Code de l'entrepôt (NJ, CA, TX) ou None pour tous
+    Erases and recreates data for one or all warehouses.
+    This is a generator that yields log messages.
     """
     load_dotenv()
     
@@ -86,257 +58,197 @@ def refresh_inventory_database(warehouse_code=None):
     supabase_key = os.environ.get("SUPABASE_KEY")
     
     if not supabase_url or not supabase_key:
-        print("❌ Erreur: Variables d'environnement Supabase manquantes")
-        return False
+        yield "❌ ERROR: Supabase environment variables are missing."
+        yield "__FAILURE__"
+        return
     
     try:
         supabase: Client = create_client(supabase_url, supabase_key)
-        print(f"✅ Connexion à Supabase réussie")
+        yield "✅ Connection to Supabase successful."
         
-        # Déterminer quels entrepôts traiter
-        if warehouse_code:
-            if warehouse_code.upper() not in WAREHOUSE_CONFIG:
-                print(f"❌ Entrepôt '{warehouse_code}' non reconnu. Entrepôts disponibles: {list(WAREHOUSE_CONFIG.keys())}")
-                return False
-            warehouses_to_process = [warehouse_code.upper()]
-        else:
-            warehouses_to_process = list(WAREHOUSE_CONFIG.keys())
-        
-        print(f"🏭 Entrepôts à traiter: {warehouses_to_process}")
+        warehouses_to_process = [warehouse_code.upper()] if warehouse_code else list(WAREHOUSE_CONFIG.keys())
+        yield f"🏭 Warehouses to process: {', '.join(warehouses_to_process)}"
         
         success_count = 0
         for warehouse in warehouses_to_process:
-            print(f"\n{'='*60}")
-            print(f"🏭 Traitement de l'entrepôt {warehouse} ({WAREHOUSE_CONFIG[warehouse]['name']})")
-            print(f"{'='*60}")
+            yield f"\n{'='*60}"
+            yield f"🏭 Processing warehouse: {WAREHOUSE_CONFIG[warehouse]['name']} ({warehouse})"
             
-            config = WAREHOUSE_CONFIG[warehouse]
             warehouse_folder = f"data/warehouses/{warehouse}"
-            csv_path = config["csv_export"]
             
-            # Chercher automatiquement le fichier Excel
-            excel_path = find_excel_file(warehouse_folder, warehouse)
-            
-            # Vérifier que le fichier Excel existe
+            excel_path = None
+            for item in find_excel_file(warehouse_folder, warehouse):
+                if isinstance(item, tuple) and item[0] == 'result':
+                    excel_path = item[1]
+                else:
+                    yield item
+
             if not excel_path:
-                print(f"⚠️ Aucun fichier Excel trouvé dans: {warehouse_folder}")
-                print(f"   Veuillez placer un fichier Excel de {warehouse} dans ce dossier.")
-                print(f"   Noms acceptés: {warehouse}_STENCIL_INVENTORY.xlsx, {warehouse} STENCIL INVENTORY.xlsx, etc.")
+                yield f"⚠️ No Excel file found in: {warehouse_folder}"
                 continue
             
-            # 1. Lire et nettoyer le fichier Excel
-            print(f"📊 Lecture du fichier Excel: {excel_path}")
-            df = read_and_clean_excel(excel_path)
-            
+            yield f"📊 Reading and cleaning Excel file..."
+            df = None
+            for item in read_and_clean_excel(excel_path):
+                if isinstance(item, tuple) and item[0] == 'result':
+                    df = item[1]
+                else:
+                    yield f"   {item}"
+
             if df is None or df.empty:
-                print(f"❌ Aucune donnée trouvée dans {excel_path}")
+                yield f"❌ No valid data found in {os.path.basename(excel_path)}."
                 continue
                 
-            # 2. Ajouter la colonne warehouse
             df['warehouse'] = warehouse
-            
-            print(f"📈 {len(df)} entrées trouvées pour l'entrepôt {warehouse}")
-            
-            # 3. Sauvegarder en CSV (optionnel, pour backup)
-            df_export = df.copy()
-            df_export.to_csv(csv_path, index=False)
-            print(f"💾 Export CSV sauvegardé: {csv_path}")
-            
-            # 4. Vider complètement la table pour cet entrepôt
-            print(f"🗑️ Suppression des données existantes pour {warehouse}...")
+            yield f"📈 Found {len(df)} total entries for {warehouse}."
+
+            # Check existing rows and attempt to delete them
             try:
-                delete_result = supabase.table("inventory").delete().eq("warehouse", warehouse).execute()
-                print(f"✅ Données supprimées pour {warehouse}")
+                count_req = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
+                existing_rows = count_req.count
+                yield f"🔍 Found {existing_rows} existing rows for {warehouse} in the database."
+                if existing_rows > 0:
+                    yield f"🗑️ Deleting {existing_rows} existing rows..."
+                    # Note: supabase-py v1 does not easily return the count of deleted rows.
+                    # We proceed and verify with a final count later.
+                    supabase.table("inventory").delete().eq("warehouse", warehouse).execute()
+                    yield "✅ Delete command sent. IMPORTANT: This may fail silently if Row Level Security (RLS) policies are preventing deletion."
             except Exception as e:
-                print(f"⚠️ Erreur lors de la suppression (probablement normal si première fois): {e}")
-            
-            # 5. Insérer les nouvelles données par chunks
+                yield f"⚠️ Could not delete data: {e}"
+                yield "__FAILURE__"
+                continue # Skip to next warehouse
+
             chunk_size = 100
             total_chunks = (len(df) + chunk_size - 1) // chunk_size
+            yield f"📤 Uploading data in {total_chunks} chunks..."
             
-            print(f"📤 Upload des données en {total_chunks} chunks...")
-            
-            inserted_count = 0
             for i in range(0, len(df), chunk_size):
                 chunk = df.iloc[i:i + chunk_size]
                 chunk_records = chunk.to_dict(orient="records")
                 
-                # Nettoyer les valeurs NaN pour Supabase et convertir les types problématiques
                 for record in chunk_records:
                     for key, value in record.items():
-                        if pd.isna(value) or value is None:
-                            record[key] = None
-                        # Convertir les dates/timestamps en strings
-                        elif isinstance(value, (pd.Timestamp, datetime, np.datetime64)):
-                            try:
-                                if hasattr(value, 'strftime'):
-                                    record[key] = value.strftime('%Y-%m-%d')
-                                else:
-                                    record[key] = str(value).split('T')[0] if 'T' in str(value) else str(value)
-                            except:
-                                record[key] = str(value) if value != '' else None
-                        # Convertir les nombres numpy en types Python natifs
-                        elif isinstance(value, (np.integer, np.floating)):
-                            record[key] = value.item()
-                        # Convertir les booléens numpy
-                        elif isinstance(value, np.bool_):
-                            record[key] = bool(value)
-                        # Autres types avec strftime (dates diverses)
-                        elif hasattr(value, 'strftime'):
-                            try:
-                                record[key] = value.strftime('%Y-%m-%d')
-                            except:
-                                record[key] = str(value) if value != '' else None
-                        # S'assurer que les strings vides deviennent None
-                        elif isinstance(value, str) and value.strip() == '':
-                            record[key] = None
+                        if pd.isna(value) or value is None: record[key] = None
+                        elif isinstance(value, (pd.Timestamp, datetime, np.datetime64)): record[key] = str(value).split('T')[0]
+                        elif isinstance(value, (np.integer, np.floating)): record[key] = value.item()
+                        elif isinstance(value, np.bool_): record[key] = bool(value)
+                        elif hasattr(value, 'strftime'): record[key] = value.strftime('%Y-%m-%d')
+                        elif isinstance(value, str) and value.strip() == '': record[key] = None
                 
                 try:
-                    # Insérer le chunk
-                    result = supabase.table("inventory").insert(chunk_records).execute()
-                    inserted_count += len(chunk_records)
-                    print(f"  ✅ Chunk {(i//chunk_size)+1}/{total_chunks} uploadé ({len(chunk_records)} entrées)")
+                    supabase.table("inventory").insert(chunk_records).execute()
+                    yield f"  ✅ Chunk {(i//chunk_size)+1}/{total_chunks} uploaded ({len(chunk_records)} entries)"
+                    time.sleep(0.1)
                 except Exception as e:
-                    print(f"  ❌ Erreur chunk {(i//chunk_size)+1}: {e}")
-                    continue
+                    yield f"  ❌ Error on chunk {(i//chunk_size)+1}: {e}"
             
-            # 6. Vérification finale
-            try:
-                count_result = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
-                print(f"🔍 Vérification: {count_result.count} entrées dans la base pour {warehouse}")
-                
-                if count_result.count == len(df):
-                    print(f"🎉 Mise à jour réussie pour {warehouse}!")
-                    success_count += 1
-                else:
-                    print(f"⚠️ Nombre d'entrées différent pour {warehouse}: attendu {len(df)}, trouvé {count_result.count}")
-            except Exception as e:
-                print(f"❌ Erreur lors de la vérification: {e}")
+            yield "🔍 Final verification..."
+            count_result = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
+            if count_result.count == len(df):
+                yield f"🎉 Update successful for {warehouse}! ({count_result.count} entries)"
+                success_count += 1
+            else:
+                yield ""
+                yield f"🔥🔥🔥 CRITICAL MISMATCH for {warehouse} 🔥🔥🔥"
+                yield f"   - Expected Entries: {len(df)}"
+                yield f"   - Final Entries in DB: {count_result.count}"
+                yield "   - This means the old data was NOT deleted correctly."
+                yield "   - LIKELY CAUSE: A Row Level Security (RLS) policy on the 'inventory' table is blocking DELETE operations."
+                yield "   - TO FIX: Please go to the Supabase dashboard, navigate to 'Authentication' -> 'Policies', and ensure you have a policy that allows deletes."
+                yield ""
         
-        print(f"\n{'='*60}")
-        print(f"🎯 RÉSUMÉ FINAL")
-        print(f"{'='*60}")
-        print(f"✅ {success_count}/{len(warehouses_to_process)} entrepôts mis à jour avec succès")
+        yield f"\n{'='*60}"
+        yield f"🎯 FINAL SUMMARY"
+        yield f"✅ Successfully updated {success_count}/{len(warehouses_to_process)} warehouses."
         
-        return success_count > 0
+        if success_count == len(warehouses_to_process):
+            yield "__SUCCESS__"
+        else:
+            yield "__FAILURE__"
         
     except Exception as e:
-        print(f"❌ Erreur générale lors de la mise à jour: {e}")
-        return False
+        yield f"❌ An unexpected error occurred: {e}"
+        yield "__FAILURE__"
 
 def read_and_clean_excel(excel_path):
     """
-    Lit et nettoie le fichier Excel.
+    Reads and cleans the Excel file. Yields log messages and the
+    final DataFrame as ('result', df).
     """
-    FINAL_COLUMNS = [
-        "STENCIL", "ORIENTATION", "INVOICE #", "CONE SIZE", 
-        "# OF LINES", "MISC. INFO", "DATE", "SILKSCREEN"
-    ]
-    
     try:
         all_cleaned_dfs = []
-        
         with pd.ExcelFile(excel_path) as xls:
             sheet_names = xls.sheet_names
-            print(f"📋 Feuilles trouvées: {sheet_names}")
+            yield f"📋 Sheets found: {sheet_names}"
             
-            if len(sheet_names) <= 1:
-                print("⚠️ Une seule feuille trouvée, traitement de la première feuille")
-                sheets_to_process = sheet_names
-            else:
-                sheets_to_process = sheet_names[1:]  # Skip first sheet
-                print(f"📋 Traitement des feuilles: {sheets_to_process}")
+            sheets_to_process = sheet_names[1:] if len(sheet_names) > 1 else sheet_names
             
             for sheet in sheets_to_process:
-                print(f"  📄 Traitement de '{sheet}'...")
+                yield f"  📄 Processing sheet '{sheet}'..."
                 df = pd.read_excel(xls, sheet_name=sheet)
                 
                 if df.empty:
-                    print(f"    ⚠️ Feuille '{sheet}' vide, ignorée")
+                    yield f"    - Sheet '{sheet}' is empty, skipping."
                     continue
                 
-                # Nettoyer la DataFrame
                 df.dropna(how='all', inplace=True)
-                if df.empty:
-                    continue
+                if df.empty: continue
                     
-                # Standardiser les noms de colonnes
                 df.columns = [str(col).strip().upper() for col in df.columns]
+                if 'STENCILS' in df.columns: df.rename(columns={'STENCILS': 'STENCIL'}, inplace=True)
                 
-                # Renommer STENCILS en STENCIL si nécessaire
-                if 'STENCILS' in df.columns:
-                    df.rename(columns={'STENCILS': 'STENCIL'}, inplace=True)
-                
-                print(f"    ✅ {len(df)} lignes trouvées dans '{sheet}'")
+                yield f"    - Found {len(df)} rows in '{sheet}'"
                 all_cleaned_dfs.append(df)
         
         if not all_cleaned_dfs:
-            print("❌ Aucune donnée valide trouvée")
-            return None
+            yield "❌ No valid data found in sheets."
+            yield ('result', None)
+            return
             
-        # Combiner toutes les DataFrames
         combined_df = pd.concat(all_cleaned_dfs, ignore_index=True)
+        yield f" consolidating {len(combined_df)} total rows..."
         
-        # Créer DataFrame finale avec colonnes standardisées
         final_df = pd.DataFrame()
         column_mapping = {
-            "STENCIL": "stencil",
-            "ORIENTATION": "orientation", 
-            "INVOICE #": "invoice_number",
-            "CONE SIZE": "cone_size",
-            "# OF LINES": "number_of_lines",
-            "MISC. INFO": "misc_info",
-            "DATE": "date_of_inventory",
-            "SILKSCREEN": "silkscreen"
+            "STENCIL": "stencil", "ORIENTATION": "orientation", "INVOICE #": "invoice_number",
+            "CONE SIZE": "cone_size", "# OF LINES": "number_of_lines", "MISC. INFO": "misc_info",
+            "DATE": "date_of_inventory", "SILKSCREEN": "silkscreen"
         }
         
         for excel_col, db_col in column_mapping.items():
             if excel_col in combined_df.columns:
-                final_df[db_col] = combined_df[excel_col]
-                
-                # Nettoyage spécifique par colonne
-                if db_col == 'date_of_inventory':
-                    # Convertir les dates en strings pour éviter les problèmes JSON
-                    final_df[db_col] = final_df[db_col].apply(
-                        lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) and hasattr(x, 'strftime') 
-                        else str(x) if pd.notna(x) and x != '' 
-                        else None
+                # Apply specific cleaning based on the column
+                if db_col == 'orientation':
+                    # Standardize orientation: only 'HRZ', 'VERT', or None are allowed
+                    final_df[db_col] = combined_df[excel_col].apply(
+                        lambda x: str(x).strip().upper() if pd.notna(x) and str(x).strip() != '' else None
                     )
-                elif db_col == 'orientation':
-                    # Nettoyer l'orientation : seulement HRZ, VER ou None
+                    # Map common variations to the standard values
+                    orientation_map = {'HORIZONTAL': 'HRZ', 'VERTICAL': 'VERT'}
+                    final_df[db_col] = final_df[db_col].replace(orientation_map)
+                    # Set any value that is not HRZ or VERT to None
                     final_df[db_col] = final_df[db_col].apply(
-                        lambda x: str(x).strip().upper() if pd.notna(x) and str(x).strip() != '' 
-                        else None
+                        lambda x: x if x in ['HRZ', 'VERT'] else None
                     )
-                    # Vérifier que les valeurs sont valides
-                    final_df[db_col] = final_df[db_col].apply(
-                        lambda x: x if x in ['HRZ', 'VER'] else None
+                elif db_col == 'date_of_inventory':
+                    # Convert dates to strings to avoid JSON serialization issues
+                    final_df[db_col] = pd.to_datetime(combined_df[excel_col], errors='coerce').apply(
+                        lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else None
                     )
                 else:
-                    # Pour les autres colonnes, convertir les strings vides en None
-                    final_df[db_col] = final_df[db_col].apply(
-                        lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != '' 
-                        else None
+                    # For all other columns, just convert to string and strip whitespace
+                    final_df[db_col] = combined_df[excel_col].apply(
+                        lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != '' else None
                     )
             else:
-                final_df[db_col] = None
-                print(f"    ⚠️ Colonne '{excel_col}' manquante, remplie avec None")
+                final_df[db_col] = None # Add missing columns with None
         
-        print(f"✅ Nettoyage terminé: {len(final_df)} entrées au total")
-        
-        # Rapport de nettoyage
-        print(f"📊 Statistiques de nettoyage:")
-        print(f"   - Orientations HRZ: {(final_df['orientation'] == 'HRZ').sum()}")
-        print(f"   - Orientations VER: {(final_df['orientation'] == 'VER').sum()}")  
-        print(f"   - Orientations vides: {final_df['orientation'].isna().sum()}")
-        print(f"   - Avec dates: {final_df['date_of_inventory'].notna().sum()}")
-        print(f"   - Sans dates: {final_df['date_of_inventory'].isna().sum()}")
-        
-        return final_df
+        yield "✅ Data cleaning complete."
+        yield ('result', final_df)
         
     except Exception as e:
-        print(f"❌ Erreur lors de la lecture Excel: {e}")
-        return None
+        yield f"❌ Error while reading Excel file: {e}"
+        yield ('result', None)
 
 def list_available_files():
     """
@@ -357,33 +269,3 @@ def list_available_files():
         else:
             print(f"❌ {warehouse} ({config['name']}): Aucun fichier Excel trouvé dans {warehouse_folder}")
         print()
-
-if __name__ == "__main__":
-    print("🏭 Multi-Warehouse Inventory Database Refresh Tool")
-    print("="*60)
-    
-    # Créer la structure de dossiers
-    create_directory_structure()
-    
-    if len(sys.argv) > 1:
-        command = sys.argv[1].upper()
-        
-        if command == "LIST":
-            list_available_files()
-        elif command in WAREHOUSE_CONFIG:
-            refresh_inventory_database(command)
-        else:
-            print(f"❌ Commande/Entrepôt non reconnu: {command}")
-            print(f"Entrepôts disponibles: {list(WAREHOUSE_CONFIG.keys())}")
-            print("Ou utilisez 'LIST' pour voir les fichiers disponibles")
-    else:
-        print("Usage:")
-        print("  python refresh_database.py NJ     # Met à jour seulement New Jersey")
-        print("  python refresh_database.py CA     # Met à jour seulement California") 
-        print("  python refresh_database.py TX     # Met à jour seulement Texas")
-        print("  python refresh_database.py LIST   # Liste les fichiers disponibles")
-        print("  python refresh_database.py        # Met à jour tous les entrepôts")
-        print()
-        
-        # Par défaut, traiter tous les entrepôts
-        refresh_inventory_database()
