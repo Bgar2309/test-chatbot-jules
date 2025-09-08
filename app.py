@@ -5,6 +5,9 @@ from supabase import create_client, Client
 from openai import OpenAI
 from mistralai.client import MistralClient
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
+from pathlib import Path
+from refresh_database import refresh_inventory_database
 
 # Load environment variables from .env file
 load_dotenv()
@@ -266,6 +269,70 @@ def get_response_from_llm(user_question, db_results, history, model, warehouses)
 @app.route('/')
 def home():
     return render_template('index.html')
+
+@app.route('/admin')
+def admin():
+    """
+    Serves the admin page for file uploads.
+    """
+    # We pass the warehouse info to the template, excluding the 'ALL' entry
+    warehouses_for_upload = {k: v for k, v in WAREHOUSE_INFO.items() if k != 'ALL'}
+    return render_template('admin.html', warehouses=warehouses_for_upload)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    """
+    Handles file uploads and triggers the database refresh.
+    """
+    if 'file' not in request.files:
+        return jsonify({"success": False, "message": "No file part in the request"}), 400
+
+    file = request.files['file']
+    warehouse = request.form.get('warehouse')
+
+    if file.filename == '':
+        return jsonify({"success": False, "message": "No file selected"}), 400
+
+    if not warehouse or warehouse not in WAREHOUSE_INFO:
+        return jsonify({"success": False, "message": f"Invalid warehouse: {warehouse}"}), 400
+
+    if file:
+        filename = secure_filename(file.filename)
+        # Define the path to the warehouse-specific folder
+        upload_folder = Path(f"data/warehouses/{warehouse}")
+        # Create the directory if it doesn't exist
+        upload_folder.mkdir(parents=True, exist_ok=True)
+
+        # Clean up old .xlsx files in the directory to avoid confusion
+        for old_file in upload_folder.glob('*.xlsx'):
+            try:
+                os.remove(old_file)
+                print(f"🗑️ Removed old file: {old_file}")
+            except OSError as e:
+                print(f"Error removing old file {old_file}: {e}")
+                return jsonify({"success": False, "message": f"Error cleaning up old files: {e}"}), 500
+
+        # Save the new file
+        file_path = upload_folder / filename
+        file.save(file_path)
+        print(f"✅ File '{filename}' uploaded to '{file_path}'")
+
+        # Trigger the database refresh for the specified warehouse
+        print(f"🔄 Triggering database refresh for {warehouse}...")
+        success = refresh_inventory_database(warehouse_code=warehouse)
+
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"✅ {warehouse} inventory updated successfully from {filename}!"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": f"❌ Error updating database for {warehouse}. Check server logs for details."
+            }), 500
+
+    return jsonify({"success": False, "message": "An unexpected error occurred during upload"}), 500
 
 @app.route('/chat', methods=['POST'])
 def chat():
