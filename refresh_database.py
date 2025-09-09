@@ -87,6 +87,15 @@ def refresh_inventory_database(warehouse_code=None):
                 yield f"⚠️ No Excel file found in: {warehouse_folder}"
                 continue
             
+            # Check existing rows first
+            existing_rows = 0
+            try:
+                count_req = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
+                existing_rows = count_req.count
+                yield f"🔍 Found {existing_rows} existing rows for {warehouse} in the database."
+            except Exception as e:
+                yield f"⚠️ Could not retrieve existing row count: {e}. Assuming 0."
+
             yield f"📊 Reading and cleaning Excel file..."
             df = None
             for item in read_and_clean_excel(excel_path):
@@ -100,13 +109,20 @@ def refresh_inventory_database(warehouse_code=None):
                 continue
                 
             df['warehouse'] = warehouse
-            yield f"📈 Found {len(df)} total entries for {warehouse}."
+            new_rows = len(df)
+            yield f"📈 Found {new_rows} total entries in the new file for {warehouse}."
 
-            # Check existing rows and attempt to delete them
+            # Log the difference
+            difference = new_rows - existing_rows
+            if difference > 0:
+                yield f"   -> INFO: This is an addition of {difference} entries."
+            elif difference < 0:
+                yield f"   -> INFO: This is a removal of {abs(difference)} entries."
+            else:
+                yield f"   -> INFO: The number of entries is unchanged."
+
+            # Attempt to delete existing rows
             try:
-                count_req = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
-                existing_rows = count_req.count
-                yield f"🔍 Found {existing_rows} existing rows for {warehouse} in the database."
                 if existing_rows > 0:
                     yield f"🗑️ Deleting {existing_rows} existing rows..."
                     # Note: supabase-py v1 does not easily return the count of deleted rows.
