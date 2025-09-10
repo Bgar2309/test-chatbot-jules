@@ -136,6 +136,7 @@ def refresh_inventory_database(warehouse_code=None):
 
             chunk_size = 100
             total_chunks = (len(df) + chunk_size - 1) // chunk_size
+            chunk_errors = 0
             yield f"📤 Uploading data in {total_chunks} chunks..."
             
             for i in range(0, len(df), chunk_size):
@@ -157,6 +158,7 @@ def refresh_inventory_database(warehouse_code=None):
                     time.sleep(0.1)
                 except Exception as e:
                     yield f"  ❌ Error on chunk {(i//chunk_size)+1}: {e}"
+                    chunk_errors += 1
             
             yield "🔍 Final verification..."
             count_result = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
@@ -168,9 +170,13 @@ def refresh_inventory_database(warehouse_code=None):
                 yield f"🔥🔥🔥 CRITICAL MISMATCH for {warehouse} 🔥🔥🔥"
                 yield f"   - Expected Entries: {len(df)}"
                 yield f"   - Final Entries in DB: {count_result.count}"
-                yield "   - This means the old data was NOT deleted correctly."
-                yield "   - LIKELY CAUSE: A Row Level Security (RLS) policy on the 'inventory' table is blocking DELETE operations."
-                yield "   - TO FIX: Please go to the Supabase dashboard, navigate to 'Authentication' -> 'Policies', and ensure you have a policy that allows deletes."
+                if chunk_errors > 0:
+                    yield f"   - LIKELY CAUSE: {chunk_errors} chunk(s) failed to upload due to data errors."
+                    yield "   - TO FIX: Please review the 'Error on chunk' messages above to identify the problematic data in your Excel file."
+                else:
+                    yield "   - This means the old data was NOT deleted correctly."
+                    yield "   - LIKELY CAUSE: A Row Level Security (RLS) policy on the 'inventory' table is blocking DELETE operations."
+                    yield "   - TO FIX: Please go to the Supabase dashboard, navigate to 'Authentication' -> 'Policies', and ensure you have a policy that allows deletes."
                 yield ""
         
         yield f"\n{'='*60}"
@@ -185,6 +191,15 @@ def refresh_inventory_database(warehouse_code=None):
     except Exception as e:
         yield f"❌ An unexpected error occurred: {e}"
         yield "__FAILURE__"
+
+def _clean_orientation_value(value):
+    """A robust function to clean the 'orientation' column data."""
+    if pd.isna(value): return None
+    s_val = str(value).strip().upper()
+    if s_val == '': return None
+    if 'HORI' in s_val: return 'HRZ'
+    if 'VERT' in s_val: return 'VERT'
+    return None
 
 def read_and_clean_excel(excel_path):
     """
@@ -235,17 +250,7 @@ def read_and_clean_excel(excel_path):
             if excel_col in combined_df.columns:
                 # Apply specific cleaning based on the column
                 if db_col == 'orientation':
-                    # Standardize orientation: only 'HRZ', 'VERT', or None are allowed
-                    final_df[db_col] = combined_df[excel_col].apply(
-                        lambda x: str(x).strip().upper() if pd.notna(x) and str(x).strip() != '' else None
-                    )
-                    # Map common variations to the standard values
-                    orientation_map = {'HORIZONTAL': 'HRZ', 'VERTICAL': 'VERT'}
-                    final_df[db_col] = final_df[db_col].replace(orientation_map)
-                    # Set any value that is not HRZ or VERT to None
-                    final_df[db_col] = final_df[db_col].apply(
-                        lambda x: x if x in ['HRZ', 'VERT'] else None
-                    )
+                    final_df[db_col] = combined_df[excel_col].apply(_clean_orientation_value)
                 elif db_col == 'date_of_inventory':
                     # Convert dates to strings to avoid JSON serialization issues
                     final_df[db_col] = pd.to_datetime(combined_df[excel_col], errors='coerce').apply(
