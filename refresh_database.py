@@ -8,6 +8,7 @@ from pathlib import Path
 import glob
 import numpy as np
 import time
+import json
 
 # Configuration des chemins
 WAREHOUSE_CONFIG = {
@@ -159,6 +160,12 @@ def refresh_inventory_database(warehouse_code=None):
                 except Exception as e:
                     yield f"  ❌ Error on chunk {(i//chunk_size)+1}: {e}"
                     chunk_errors += 1
+                    try:
+                        # Log the problematic chunk for debugging
+                        problematic_chunk_json = json.dumps(chunk_records, indent=2)
+                        yield f"  🚨 DEBUG: Problematic chunk data:\n{problematic_chunk_json}"
+                    except Exception as json_e:
+                        yield f"  🚨 DEBUG: Could not serialize problematic chunk to JSON: {json_e}"
             
             yield "🔍 Final verification..."
             count_result = supabase.table("inventory").select("id", count="exact").eq("warehouse", warehouse).execute()
